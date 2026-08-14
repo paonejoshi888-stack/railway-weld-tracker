@@ -3,6 +3,7 @@ import pandas as pd
 import datetime
 import gspread
 import os
+import re
 from oauth2client.service_account import ServiceAccountCredentials
 
 st.set_page_config(page_title="Railway Weld Tracker", layout="centered")
@@ -11,9 +12,6 @@ st.set_page_config(page_title="Railway Weld Tracker", layout="centered")
 # 0. PASSWORD PROTECTION
 # =========================================================
 def check_password():
-    """Returns `True` if the user enters the correct password."""
-    
-    # Check if we are testing locally without secrets set up yet
     if "APP_PASSWORD" not in st.secrets:
         st.warning("⚠️ No password found in secrets. Bypassing login for local testing.")
         return True
@@ -21,7 +19,7 @@ def check_password():
     def password_entered():
         if st.session_state["password"] == st.secrets["APP_PASSWORD"]:
             st.session_state["password_correct"] = True
-            del st.session_state["password"]  # Don't store password
+            del st.session_state["password"]  
         else:
             st.session_state["password_correct"] = False
 
@@ -37,10 +35,10 @@ def check_password():
     return True
 
 if not check_password():
-    st.stop()  # Stop the app here if the password is wrong
+    st.stop()
 
 # =========================================================
-# THE REST OF YOUR APP (Only runs if password is correct)
+# THE REST OF YOUR APP
 # =========================================================
 st.title("🚆 Railway Weld Record Manager")
 
@@ -62,7 +60,7 @@ def init_connection():
     if os.path.exists('credentials.json'):
         creds = ServiceAccountCredentials.from_json_keyfile_name('credentials.json', scope)
     else:
-        # Convert secrets to a standard dictionary and properly format the private key
+        # Handles the newline parsing issue securely
         secrets_dict = dict(st.secrets["gcp_service_account"])
         if "private_key" in secrets_dict:
             secrets_dict["private_key"] = secrets_dict["private_key"].replace("\\n", "\n")
@@ -86,31 +84,47 @@ tab1, tab2, tab3, tab4 = st.tabs(["➕ Add Record", "✏️ Modify Record", "�
 with tab1:
     st.subheader("Add a New Weld Record")
     with st.form("add_form", clear_on_submit=True):
-        add_id = st.text_input("AT weld ID *")
+        add_id = st.text_input("AT weld ID (e.g., AT001-10-77) *")
+        
         col1, col2, col3 = st.columns(3)
         add_dw = col1.date_input("Date of Welding *", value=None, min_value=MIN_DATE, format="DD/MM/YYYY")
         add_du = col2.date_input("Date of USFD Testing *", value=None, min_value=MIN_DATE, format="DD/MM/YYYY")
         add_due = col3.date_input("Due Date of USFD *", value=None, min_value=MIN_DATE, format="DD/MM/YYYY")
+        
         col4, col5 = st.columns(2)
         add_loc = col4.selectbox("Flaw Location", ["", "FLANGE", "HEAD", "WEB"])
         add_probe = col5.selectbox("Probe Used", ["", "70 DEG", "0 DEG"])
-        col6, col7 = st.columns(2)
-        add_int_blank = col6.checkbox("Leave Flaw Intensity blank", value=True)
-        add_int = col7.number_input("Flaw Intensity (%)", min_value=0, max_value=100, value=0, disabled=add_int_blank)
+        
+        # Removed the checkbox, using a standard required integer input
+        add_int = st.number_input("Flaw Intensity (%)", min_value=0, max_value=100, value=0)
+        
         add_class = st.selectbox("USFD Classification *", ["", "OK", "DFWO", "DFWR"])
         submitted = st.form_submit_button("Add Record", type="primary")
         
         if submitted:
+            # 1. Check if fields are empty
             if not all([add_id, add_dw, add_du, add_due, add_class]):
                 st.error("Please fill all required fields (*)")
+            # 2. Enforce the strict ATXXX-XX-XX format using Regex
+            elif not re.match(r"^AT\d{3}-\d{2}-\d{2}$", add_id.strip()):
+                st.error("⚠️ Invalid Format! The Weld ID must start with 'AT', followed by 3 digits, a hyphen, 2 digits, a hyphen, and 2 digits (e.g., AT001-10-77).")
             else:
                 df = get_data_df()
                 if not df.empty and "AT weld ID" in df.columns and add_id.strip() in df["AT weld ID"].astype(str).values:
                     st.error(f"Error: Weld ID '{add_id.strip()}' already exists.")
                 else:
-                    intensity_val = "" if add_int_blank else int(add_int)
-                    new_row = [add_id.strip(), add_dw.strftime("%d/%m/%Y"), add_du.strftime("%d/%m/%Y"), 
-                               add_due.strftime("%d/%m/%Y"), add_loc, add_probe, intensity_val, add_class, "In service", ""]
+                    new_row = [
+                        add_id.strip(), 
+                        add_dw.strftime("%d/%m/%Y"), 
+                        add_du.strftime("%d/%m/%Y"), 
+                        add_due.strftime("%d/%m/%Y"), 
+                        add_loc, 
+                        add_probe, 
+                        int(add_int), 
+                        add_class, 
+                        "In service", 
+                        ""
+                    ]
                     sheet.append_row(new_row)
                     st.success(f"Record '{add_id.strip()}' added to Google Sheet as 'In service'!")
 
@@ -134,14 +148,19 @@ with tab2:
             u_dw = st.date_input("Date of Welding *", value=parse_date(d.get("DATE OF WELDING")), min_value=MIN_DATE, format="DD/MM/YYYY")
             u_du = st.date_input("Date of USFD Testing *", value=parse_date(d.get("DATE OF USFD TESTING")), min_value=MIN_DATE, format="DD/MM/YYYY")
             u_due = st.date_input("Due Date of USFD *", value=parse_date(d.get("DUE Date of USFD")), min_value=MIN_DATE, format="DD/MM/YYYY")
+            
             loc_options = ["", "FLANGE", "HEAD", "WEB"]
             u_loc = st.selectbox("Flaw Location", loc_options, index=loc_options.index(d.get("FLAW LOCATION")) if d.get("FLAW LOCATION") in loc_options else 0)
+            
             probe_options = ["", "70 DEG", "0 DEG"]
             u_probe = st.selectbox("Probe Used", probe_options, index=probe_options.index(d.get("PROBE USED")) if d.get("PROBE USED") in probe_options else 0)
+            
             val_int = d.get("FLAW INTENSITY")
             is_blank = (val_int == "" or pd.isna(val_int) or val_int is None)
-            u_int_blank = st.checkbox("Leave Flaw Intensity blank", value=is_blank)
-            u_int = st.number_input("Flaw Intensity (%)", min_value=0, max_value=100, value=int(val_int) if not is_blank else 0)
+            
+            # Replaced checkbox check with a standard value fetch
+            u_int = st.number_input("Flaw Intensity (%)", min_value=0, max_value=100, value=0 if is_blank else int(val_int))
+            
             class_options = ["", "OK", "DFWO", "DFWR"]
             u_class = st.selectbox("USFD Classification *", class_options, index=class_options.index(d.get("USFD CLASSIFICATION")) if d.get("USFD CLASSIFICATION") in class_options else 0)
             
@@ -158,10 +177,9 @@ with tab2:
                 if u_status == "Failed" and u_dof is None:
                     st.error("Please provide a Date of Failure since the weld status is now 'Failed'.")
                 else:
-                    intensity_val = "" if u_int_blank else int(u_int)
                     failure_date_val = u_dof.strftime("%d/%m/%Y") if (u_status == "Failed" and u_dof) else ""
                     updated_values = [str(d.get("AT weld ID")), u_dw.strftime("%d/%m/%Y"), u_du.strftime("%d/%m/%Y"), 
-                                      u_due.strftime("%d/%m/%Y"), u_loc, u_probe, intensity_val, u_class, u_status, failure_date_val]
+                                      u_due.strftime("%d/%m/%Y"), u_loc, u_probe, int(u_int), u_class, u_status, failure_date_val]
                     row_num = st.session_state['edit_row_num']
                     sheet.update(f"A{row_num}:J{row_num}", [updated_values])
                     st.success("Record updated successfully!")
