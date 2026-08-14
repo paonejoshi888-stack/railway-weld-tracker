@@ -60,7 +60,6 @@ def init_connection():
     if os.path.exists('credentials.json'):
         creds = ServiceAccountCredentials.from_json_keyfile_name('credentials.json', scope)
     else:
-        # Handles the newline parsing issue securely
         secrets_dict = dict(st.secrets["gcp_service_account"])
         if "private_key" in secrets_dict:
             secrets_dict["private_key"] = secrets_dict["private_key"].replace("\\n", "\n")
@@ -81,10 +80,23 @@ def get_data_df():
 
 tab1, tab2, tab3, tab4 = st.tabs(["➕ Add Record", "✏️ Modify Record", "🗑️ Delete Record", "📊 View Database"])
 
+# ---------------------------------------------------------
+# 2. ADD RECORD TAB
+# ---------------------------------------------------------
 with tab1:
     st.subheader("Add a New Weld Record")
     with st.form("add_form", clear_on_submit=True):
-        add_id = st.text_input("AT weld ID (e.g., AT001-10-77) *")
+        
+        st.markdown("**Build AT Weld ID**")
+        # Layout for the segmented ID builder
+        col_at, col_p1, col_p2, col_p3, col_p4 = st.columns([0.6, 1.5, 1.5, 1.2, 1.2])
+        col_at.markdown("<h4 style='text-align: center; margin-top: 35px;'>AT</h4>", unsafe_allow_html=True)
+        id_p1 = col_p1.text_input("3 Digits *", max_chars=3, placeholder="001")
+        id_p2 = col_p2.text_input("Letter(s)", placeholder="A (Opt.)")
+        id_p3 = col_p3.text_input("2 Digits *", max_chars=2, placeholder="10")
+        id_p4 = col_p4.text_input("2 Digits *", max_chars=2, placeholder="77")
+        
+        st.markdown("---")
         
         col1, col2, col3 = st.columns(3)
         add_dw = col1.date_input("Date of Welding *", value=None, min_value=MIN_DATE, format="DD/MM/YYYY")
@@ -95,49 +107,64 @@ with tab1:
         add_loc = col4.selectbox("Flaw Location", ["", "FLANGE", "HEAD", "WEB"])
         add_probe = col5.selectbox("Probe Used", ["", "70 DEG", "0 DEG"])
         
-        # Removed the checkbox, using a standard required integer input
         add_int = st.number_input("Flaw Intensity (%)", min_value=0, max_value=100, value=0)
-        
         add_class = st.selectbox("USFD Classification *", ["", "OK", "DFWO", "DFWR"])
+        
         submitted = st.form_submit_button("Add Record", type="primary")
         
         if submitted:
-            # 1. Check if fields are empty
-            if not all([add_id, add_dw, add_du, add_due, add_class]):
-                st.error("Please fill all required fields (*)")
-            # 2. Enforce the strict ATXXX-XX-XX format using Regex
-            elif not re.match(r"^AT\d{3}-\d{2}-\d{2}$", add_id.strip()):
-                st.error("⚠️ Invalid Format! The Weld ID must start with 'AT', followed by 3 digits, a hyphen, 2 digits, a hyphen, and 2 digits (e.g., AT001-10-77).")
+            # Check if required ID fields are empty
+            if not id_p1.strip() or not id_p3.strip() or not id_p4.strip():
+                st.error("Please fill all required Weld ID fields (digits).")
+            elif not all([add_dw, add_du, add_due, add_class]):
+                st.error("Please fill all other required fields (*)")
             else:
-                df = get_data_df()
-                if not df.empty and "AT weld ID" in df.columns and add_id.strip() in df["AT weld ID"].astype(str).values:
-                    st.error(f"Error: Weld ID '{add_id.strip()}' already exists.")
+                # Format the ID components (auto zero-padding)
+                p1_clean = id_p1.strip().zfill(3)
+                p2_clean = id_p2.strip().upper()
+                p3_clean = id_p3.strip().zfill(2)
+                p4_clean = id_p4.strip().zfill(2)
+                
+                # Assemble the final ID
+                assembled_id = f"AT{p1_clean}{p2_clean}-{p3_clean}-{p4_clean}"
+                
+                # Validate final assembled ID against the strict Regex
+                if not re.match(r"^AT\d{3}[A-Z]*-\d{2}-\d{2}$", assembled_id):
+                    st.error("⚠️ Invalid ID Format! Please ensure you only entered numbers in the Digit boxes and letters in the Letter box.")
                 else:
-                    new_row = [
-                        add_id.strip(), 
-                        add_dw.strftime("%d/%m/%Y"), 
-                        add_du.strftime("%d/%m/%Y"), 
-                        add_due.strftime("%d/%m/%Y"), 
-                        add_loc, 
-                        add_probe, 
-                        int(add_int), 
-                        add_class, 
-                        "In service", 
-                        ""
-                    ]
-                    sheet.append_row(new_row)
-                    st.success(f"Record '{add_id.strip()}' added to Google Sheet as 'In service'!")
+                    df = get_data_df()
+                    if not df.empty and "AT weld ID" in df.columns and assembled_id in df["AT weld ID"].astype(str).values:
+                        st.error(f"Error: Weld ID '{assembled_id}' already exists.")
+                    else:
+                        new_row = [
+                            assembled_id, 
+                            add_dw.strftime("%d/%m/%Y"), 
+                            add_du.strftime("%d/%m/%Y"), 
+                            add_due.strftime("%d/%m/%Y"), 
+                            add_loc, 
+                            add_probe, 
+                            int(add_int), 
+                            add_class, 
+                            "In service", 
+                            ""
+                        ]
+                        sheet.append_row(new_row)
+                        st.success(f"Record '{assembled_id}' added to Google Sheet as 'In service'!")
 
+# ---------------------------------------------------------
+# 3. MODIFY RECORD TAB
+# ---------------------------------------------------------
 with tab2:
     st.subheader("Modify Existing Record")
-    search_id = st.text_input("Enter AT weld ID to search:")
+    search_id = st.text_input("Enter AT weld ID to search (e.g. AT001-10-77):")
     if st.button("Fetch Record"):
         df = get_data_df()
-        if not df.empty and search_id.strip() in df["AT weld ID"].astype(str).values:
-            row_idx = df[df["AT weld ID"].astype(str) == search_id.strip()].index[0]
+        search_clean = search_id.strip().upper()
+        if not df.empty and search_clean in df["AT weld ID"].astype(str).values:
+            row_idx = df[df["AT weld ID"].astype(str) == search_clean].index[0]
             st.session_state['edit_row_num'] = int(row_idx) + 2 
             st.session_state['edit_data'] = df.iloc[row_idx].to_dict()
-            st.success(f"Record '{search_id}' found!")
+            st.success(f"Record '{search_clean}' found!")
         else:
             st.session_state.pop('edit_data', None)
             st.error("Record not found.")
@@ -157,8 +184,6 @@ with tab2:
             
             val_int = d.get("FLAW INTENSITY")
             is_blank = (val_int == "" or pd.isna(val_int) or val_int is None)
-            
-            # Replaced checkbox check with a standard value fetch
             u_int = st.number_input("Flaw Intensity (%)", min_value=0, max_value=100, value=0 if is_blank else int(val_int))
             
             class_options = ["", "OK", "DFWO", "DFWR"]
@@ -178,13 +203,16 @@ with tab2:
                     st.error("Please provide a Date of Failure since the weld status is now 'Failed'.")
                 else:
                     failure_date_val = u_dof.strftime("%d/%m/%Y") if (u_status == "Failed" and u_dof) else ""
-                    updated_values = [str(d.get("AT weld ID")), u_dw.strftime("%d/%m/%Y"), u_du.strftime("%d/%m/%Y"), 
+                    updated_values = [str(d.get("AT weld ID")).upper(), u_dw.strftime("%d/%m/%Y"), u_du.strftime("%d/%m/%Y"), 
                                       u_due.strftime("%d/%m/%Y"), u_loc, u_probe, int(u_int), u_class, u_status, failure_date_val]
                     row_num = st.session_state['edit_row_num']
                     sheet.update(f"A{row_num}:J{row_num}", [updated_values])
                     st.success("Record updated successfully!")
                     st.session_state.pop('edit_data', None)
 
+# ---------------------------------------------------------
+# 4. DELETE RECORD TAB
+# ---------------------------------------------------------
 with tab3:
     st.subheader("Delete a Record")
     st.warning("⚠️ Warning: Deleting a record is permanent and cannot be undone.")
@@ -194,15 +222,19 @@ with tab3:
             st.error("Please enter an AT weld ID.")
         else:
             df = get_data_df()
-            if not df.empty and del_search_id.strip() in df["AT weld ID"].astype(str).values:
-                row_idx = df[df["AT weld ID"].astype(str) == del_search_id.strip()].index[0]
+            del_clean = del_search_id.strip().upper()
+            if not df.empty and del_clean in df["AT weld ID"].astype(str).values:
+                row_idx = df[df["AT weld ID"].astype(str) == del_clean].index[0]
                 sheet.delete_rows(int(row_idx) + 2)
-                st.success(f"Record '{del_search_id.strip()}' was successfully deleted.")
-                if 'edit_data' in st.session_state and st.session_state['edit_data'].get("AT weld ID") == del_search_id.strip():
+                st.success(f"Record '{del_clean}' was successfully deleted.")
+                if 'edit_data' in st.session_state and str(st.session_state['edit_data'].get("AT weld ID")).upper() == del_clean:
                     st.session_state.pop('edit_data', None)
             else:
                 st.error("Record not found in the database.")
 
+# ---------------------------------------------------------
+# 5. VIEW DATABASE TAB
+# ---------------------------------------------------------
 with tab4:
     st.subheader("Live Google Sheet View")
     df = get_data_df()
