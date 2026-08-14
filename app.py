@@ -4,6 +4,7 @@ import datetime
 import gspread
 import os
 import re
+import io
 from oauth2client.service_account import ServiceAccountCredentials
 
 st.set_page_config(page_title="Railway Weld Tracker", layout="wide") 
@@ -88,7 +89,6 @@ with tab1:
     with st.form("add_form", clear_on_submit=True):
         
         st.markdown("**Build AT Weld ID**")
-        # Re-ordered columns: AT, KM (3 digits), TP (2 digits), Side (2 digits), Letter(s)
         col_at, col_km, col_tp, col_side, col_let = st.columns([0.4, 1.5, 1.5, 2.8, 2.3])
         col_at.markdown("<h4 style='text-align: center; margin-top: 35px;'>AT</h4>", unsafe_allow_html=True)
         
@@ -124,10 +124,8 @@ with tab1:
                 side_clean = id_side.strip().zfill(2)
                 let_clean = id_let.strip().upper()
                 
-                # Assembles as: AT[3 digits]-[2 digits]-[2 digits][Letters]
                 assembled_id = f"AT{km_clean}-{tp_clean}-{side_clean}{let_clean}"
                 
-                # Updated Regex to check letters AFTER the very last set of digits
                 if not re.match(r"^AT\d{3}-\d{2}-\d{2}[A-Z]*$", assembled_id):
                     st.error("⚠️ Invalid ID Format! Please ensure you only entered numbers in the Digit boxes and letters in the Letter box.")
                 else:
@@ -237,7 +235,36 @@ with tab3:
 with tab4:
     st.subheader("Live Google Sheet View")
     df = get_data_df()
+    
     if df.empty:
         st.info("The database is currently empty. Add records using the 'Add Record' tab.")
     else:
         st.dataframe(df, use_container_width=True)
+        
+        st.markdown("---")
+        st.subheader("📥 Download Data")
+        col_dl1, col_dl2 = st.columns(2)
+        
+        # 1. CSV Download Option (Foolproof, opens directly in Excel)
+        csv_data = df.to_csv(index=False).encode('utf-8')
+        col_dl1.download_button(
+            label="📄 Download as CSV",
+            data=csv_data,
+            file_name=f"Weld_Records_{datetime.date.today()}.csv",
+            mime="text/csv",
+        )
+        
+        # 2. Native Excel Download Option (Requires openpyxl)
+        try:
+            buffer = io.BytesIO()
+            with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                df.to_excel(writer, index=False, sheet_name='Weld_Records')
+            
+            col_dl2.download_button(
+                label="📊 Download as Excel (.xlsx)",
+                data=buffer.getvalue(),
+                file_name=f"Weld_Records_{datetime.date.today()}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        except Exception:
+            col_dl2.info("⚠️ Add 'openpyxl' to your requirements.txt in GitHub to enable the .xlsx download button.")
