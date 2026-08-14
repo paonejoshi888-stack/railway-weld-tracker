@@ -79,10 +79,10 @@ def get_data_df():
     data = sheet.get_all_records()
     return pd.DataFrame(data)
 
-tab1, tab2, tab3, tab4 = st.tabs(["➕ Add Record", "✏️ Modify Record", "🗑️ Delete Record", "📊 View Database"])
+tab1, tab2, tab3, tab4 = st.tabs(["➕ Add Record (MMG)", "✏️ Modify / USFD Update", "🗑️ Delete Record", "📊 View Database"])
 
 # ---------------------------------------------------------
-# 2. ADD RECORD TAB
+# 2. ADD RECORD TAB (Streamlined for MMG Team)
 # ---------------------------------------------------------
 with tab1:
     st.subheader("Add a New Weld Record")
@@ -98,26 +98,22 @@ with tab1:
         id_let = col_let.text_input("Letter(s) - If failed add A", placeholder="A")
         
         st.markdown("---")
+        st.markdown("**Weld Details**")
         
         col1, col2, col3 = st.columns(3)
         add_dw = col1.date_input("Date of Welding *", value=None, min_value=MIN_DATE, format="DD/MM/YYYY")
-        add_du = col2.date_input("Date of USFD Testing *", value=None, min_value=MIN_DATE, format="DD/MM/YYYY")
-        add_due = col3.date_input("Due Date of USFD *", value=None, min_value=MIN_DATE, format="DD/MM/YYYY")
+        add_km_loc = col2.text_input("KM Location Details *", placeholder="e.g., Km 75/0-5")
+        add_agency = col3.text_input("Agency of Welding Material *", placeholder="e.g., TPP")
         
-        col4, col5 = st.columns(2)
-        add_loc = col4.selectbox("Flaw Location", ["", "FLANGE", "HEAD", "WEB"])
-        add_probe = col5.selectbox("Probe Used", ["", "70 DEG", "0 DEG"])
-        
-        add_int = st.number_input("Flaw Intensity (%)", min_value=0, max_value=100, value=0)
-        add_class = st.selectbox("USFD Classification *", ["", "OK", "DFWO", "DFWR"])
+        st.info("ℹ️ USFD Testing fields have been moved to the 'Modify / USFD Update' tab.")
         
         submitted = st.form_submit_button("Add Record", type="primary")
         
         if submitted:
             if not id_km.strip() or not id_tp.strip() or not id_side.strip():
                 st.error("Please fill all required Weld ID fields (digits).")
-            elif not all([add_dw, add_du, add_due, add_class]):
-                st.error("Please fill all other required fields (*)")
+            elif not add_dw or not add_km_loc.strip() or not add_agency.strip():
+                st.error("Please fill the Date of Welding, KM Location, and Agency fields (*)")
             else:
                 km_clean = id_km.strip().zfill(3)
                 tp_clean = id_tp.strip().zfill(2)
@@ -133,23 +129,26 @@ with tab1:
                     if not df.empty and "AT weld ID" in df.columns and assembled_id in df["AT weld ID"].astype(str).values:
                         st.error(f"Error: Weld ID '{assembled_id}' already exists.")
                     else:
+                        # Pushes data across 12 columns (A to L)
                         new_row = [
                             assembled_id, 
                             add_dw.strftime("%d/%m/%Y"), 
-                            add_du.strftime("%d/%m/%Y"), 
-                            add_due.strftime("%d/%m/%Y"), 
-                            add_loc, 
-                            add_probe, 
-                            int(add_int), 
-                            add_class, 
-                            "In service", 
-                            ""
+                            "",  # C: DATE OF USFD TESTING
+                            "",  # D: DUE Date of USFD
+                            "",  # E: FLAW LOCATION
+                            "",  # F: PROBE USED
+                            "",  # G: FLAW INTENSITY
+                            "",  # H: USFD CLASSIFICATION
+                            "In service", # I: STATUS
+                            "",  # J: DATE OF FAILURE
+                            add_km_loc.strip(), # K: KM
+                            add_agency.strip()  # L: Agency
                         ]
                         sheet.append_row(new_row)
                         st.success(f"Record '{assembled_id}' added to Google Sheet as 'In service'!")
 
 # ---------------------------------------------------------
-# 3. MODIFY RECORD TAB
+# 3. MODIFY RECORD TAB (Used by USFD Team)
 # ---------------------------------------------------------
 with tab2:
     st.subheader("Modify Existing Record")
@@ -169,22 +168,33 @@ with tab2:
     if 'edit_data' in st.session_state:
         d = st.session_state['edit_data']
         with st.form("update_form"):
-            u_dw = st.date_input("Date of Welding *", value=parse_date(d.get("DATE OF WELDING")), min_value=MIN_DATE, format="DD/MM/YYYY")
-            u_du = st.date_input("Date of USFD Testing *", value=parse_date(d.get("DATE OF USFD TESTING")), min_value=MIN_DATE, format="DD/MM/YYYY")
-            u_due = st.date_input("Due Date of USFD *", value=parse_date(d.get("DUE Date of USFD")), min_value=MIN_DATE, format="DD/MM/YYYY")
+            st.markdown("**Weld Details (MMG)**")
+            col_a, col_b, col_c = st.columns(3)
+            u_dw = col_a.date_input("Date of Welding *", value=parse_date(d.get("DATE OF WELDING")), min_value=MIN_DATE, format="DD/MM/YYYY")
+            u_km_loc = col_b.text_input("KM Location Details *", value=str(d.get("KM", "")))
+            u_agency = col_c.text_input("Agency of Welding Material *", value=str(d.get("Agency", "")))
             
+            st.markdown("---")
+            st.markdown("**USFD Testing Data**")
+            
+            col1, col2 = st.columns(2)
+            u_du = col1.date_input("Date of USFD Testing", value=parse_date(d.get("DATE OF USFD TESTING")), min_value=MIN_DATE, format="DD/MM/YYYY")
+            u_due = col2.date_input("Due Date of USFD", value=parse_date(d.get("DUE Date of USFD")), min_value=MIN_DATE, format="DD/MM/YYYY")
+            
+            col3, col4 = st.columns(2)
             loc_options = ["", "FLANGE", "HEAD", "WEB"]
-            u_loc = st.selectbox("Flaw Location", loc_options, index=loc_options.index(d.get("FLAW LOCATION")) if d.get("FLAW LOCATION") in loc_options else 0)
+            u_loc = col3.selectbox("Flaw Location", loc_options, index=loc_options.index(d.get("FLAW LOCATION")) if d.get("FLAW LOCATION") in loc_options else 0)
             
             probe_options = ["", "70 DEG", "0 DEG"]
-            u_probe = st.selectbox("Probe Used", probe_options, index=probe_options.index(d.get("PROBE USED")) if d.get("PROBE USED") in probe_options else 0)
+            u_probe = col4.selectbox("Probe Used", probe_options, index=probe_options.index(d.get("PROBE USED")) if d.get("PROBE USED") in probe_options else 0)
             
+            col5, col6 = st.columns(2)
             val_int = d.get("FLAW INTENSITY")
             is_blank = (val_int == "" or pd.isna(val_int) or val_int is None)
-            u_int = st.number_input("Flaw Intensity (%)", min_value=0, max_value=100, value=0 if is_blank else int(val_int))
+            u_int = col5.number_input("Flaw Intensity (%)", min_value=0, max_value=100, value=0 if is_blank else int(val_int))
             
             class_options = ["", "OK", "DFWO", "DFWR"]
-            u_class = st.selectbox("USFD Classification *", class_options, index=class_options.index(d.get("USFD CLASSIFICATION")) if d.get("USFD CLASSIFICATION") in class_options else 0)
+            u_class = col6.selectbox("USFD Classification", class_options, index=class_options.index(d.get("USFD CLASSIFICATION")) if d.get("USFD CLASSIFICATION") in class_options else 0)
             
             st.markdown("---")
             st.markdown("**Update Weld Status**")
@@ -198,12 +208,31 @@ with tab2:
             if update_submitted:
                 if u_status == "Failed" and u_dof is None:
                     st.error("Please provide a Date of Failure since the weld status is now 'Failed'.")
+                elif not u_dw or not u_km_loc.strip() or not u_agency.strip():
+                    st.error("Date of Welding, KM Location, and Agency are required.")
                 else:
+                    dw_val = u_dw.strftime("%d/%m/%Y") if u_dw else ""
+                    du_val = u_du.strftime("%d/%m/%Y") if u_du else ""
+                    due_val = u_due.strftime("%d/%m/%Y") if u_due else ""
                     failure_date_val = u_dof.strftime("%d/%m/%Y") if (u_status == "Failed" and u_dof) else ""
-                    updated_values = [str(d.get("AT weld ID")).upper(), u_dw.strftime("%d/%m/%Y"), u_du.strftime("%d/%m/%Y"), 
-                                      u_due.strftime("%d/%m/%Y"), u_loc, u_probe, int(u_int), u_class, u_status, failure_date_val]
+                    
+                    # Updates range A through L (12 columns)
+                    updated_values = [
+                        str(d.get("AT weld ID")).upper(), 
+                        dw_val, 
+                        du_val, 
+                        due_val, 
+                        u_loc, 
+                        u_probe, 
+                        int(u_int), 
+                        u_class, 
+                        u_status, 
+                        failure_date_val,
+                        u_km_loc.strip(),
+                        u_agency.strip()
+                    ]
                     row_num = st.session_state['edit_row_num']
-                    sheet.update(f"A{row_num}:J{row_num}", [updated_values])
+                    sheet.update(f"A{row_num}:L{row_num}", [updated_values])
                     st.success("Record updated successfully!")
                     st.session_state.pop('edit_data', None)
 
@@ -245,7 +274,6 @@ with tab4:
         st.subheader("📥 Download Data")
         col_dl1, col_dl2 = st.columns(2)
         
-        # 1. CSV Download Option (Foolproof, opens directly in Excel)
         csv_data = df.to_csv(index=False).encode('utf-8')
         col_dl1.download_button(
             label="📄 Download as CSV",
@@ -254,7 +282,6 @@ with tab4:
             mime="text/csv",
         )
         
-        # 2. Native Excel Download Option (Requires openpyxl)
         try:
             buffer = io.BytesIO()
             with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
