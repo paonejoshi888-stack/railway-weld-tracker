@@ -6,7 +6,7 @@ import os
 import re
 from oauth2client.service_account import ServiceAccountCredentials
 
-st.set_page_config(page_title="Railway Weld Tracker", layout="centered")
+st.set_page_config(page_title="Railway Weld Tracker", layout="wide") 
 
 # =========================================================
 # 0. PASSWORD PROTECTION
@@ -88,13 +88,14 @@ with tab1:
     with st.form("add_form", clear_on_submit=True):
         
         st.markdown("**Build AT Weld ID**")
-        # Layout for the segmented ID builder
-        col_at, col_p1, col_p2, col_p3, col_p4 = st.columns([0.6, 1.5, 1.5, 1.2, 1.2])
+        # Re-ordered columns: AT, KM (3 digits), TP (2 digits), Side (2 digits), Letter(s)
+        col_at, col_km, col_tp, col_side, col_let = st.columns([0.4, 1.5, 1.5, 2.8, 2.3])
         col_at.markdown("<h4 style='text-align: center; margin-top: 35px;'>AT</h4>", unsafe_allow_html=True)
-        id_p1 = col_p1.text_input("3 Digits *", max_chars=3, placeholder="001")
-        id_p2 = col_p2.text_input("Letter(s)", placeholder="A (Opt.)")
-        id_p3 = col_p3.text_input("2 Digits *", max_chars=2, placeholder="10")
-        id_p4 = col_p4.text_input("2 Digits *", max_chars=2, placeholder="77")
+        
+        id_km = col_km.text_input("3 Digits * - KM", max_chars=3, placeholder="001")
+        id_tp = col_tp.text_input("2 Digits * - TP no.", max_chars=2, placeholder="10")
+        id_side = col_side.text_input("2 Digits * - RHS even, LHS odd", max_chars=2, placeholder="77")
+        id_let = col_let.text_input("Letter(s) - If failed add A", placeholder="A")
         
         st.markdown("---")
         
@@ -113,23 +114,21 @@ with tab1:
         submitted = st.form_submit_button("Add Record", type="primary")
         
         if submitted:
-            # Check if required ID fields are empty
-            if not id_p1.strip() or not id_p3.strip() or not id_p4.strip():
+            if not id_km.strip() or not id_tp.strip() or not id_side.strip():
                 st.error("Please fill all required Weld ID fields (digits).")
             elif not all([add_dw, add_du, add_due, add_class]):
                 st.error("Please fill all other required fields (*)")
             else:
-                # Format the ID components (auto zero-padding)
-                p1_clean = id_p1.strip().zfill(3)
-                p2_clean = id_p2.strip().upper()
-                p3_clean = id_p3.strip().zfill(2)
-                p4_clean = id_p4.strip().zfill(2)
+                km_clean = id_km.strip().zfill(3)
+                tp_clean = id_tp.strip().zfill(2)
+                side_clean = id_side.strip().zfill(2)
+                let_clean = id_let.strip().upper()
                 
-                # Assemble the final ID
-                assembled_id = f"AT{p1_clean}{p2_clean}-{p3_clean}-{p4_clean}"
+                # Assembles as: AT[3 digits]-[2 digits]-[2 digits][Letters]
+                assembled_id = f"AT{km_clean}-{tp_clean}-{side_clean}{let_clean}"
                 
-                # Validate final assembled ID against the strict Regex
-                if not re.match(r"^AT\d{3}[A-Z]*-\d{2}-\d{2}$", assembled_id):
+                # Updated Regex to check letters AFTER the very last set of digits
+                if not re.match(r"^AT\d{3}-\d{2}-\d{2}[A-Z]*$", assembled_id):
                     st.error("⚠️ Invalid ID Format! Please ensure you only entered numbers in the Digit boxes and letters in the Letter box.")
                 else:
                     df = get_data_df()
@@ -156,7 +155,7 @@ with tab1:
 # ---------------------------------------------------------
 with tab2:
     st.subheader("Modify Existing Record")
-    search_id = st.text_input("Enter AT weld ID to search (e.g. AT001-10-77):")
+    search_id = st.text_input("Enter AT weld ID to search (e.g. AT001-10-77 or AT001-10-77A):")
     if st.button("Fetch Record"):
         df = get_data_df()
         search_clean = search_id.strip().upper()
@@ -216,7 +215,7 @@ with tab2:
 with tab3:
     st.subheader("Delete a Record")
     st.warning("⚠️ Warning: Deleting a record is permanent and cannot be undone.")
-    del_search_id = st.text_input("Enter AT weld ID to delete:")
+    del_search_id = st.text_input("Enter AT weld ID to delete (e.g. AT001-10-77 or AT001-10-77A):")
     if st.button("Delete Record", type="primary"):
         if not del_search_id.strip():
             st.error("Please enter an AT weld ID.")
