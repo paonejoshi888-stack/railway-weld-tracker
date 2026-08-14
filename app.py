@@ -58,11 +58,16 @@ def parse_date(date_str):
 @st.cache_resource
 def init_connection():
     scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+    
     if os.path.exists('credentials.json'):
         creds = ServiceAccountCredentials.from_json_keyfile_name('credentials.json', scope)
     else:
-        creds_dict = dict(st.secrets["gcp_service_account"])
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        # Convert secrets to a standard dictionary and properly format the private key
+        secrets_dict = dict(st.secrets["gcp_service_account"])
+        if "private_key" in secrets_dict:
+            secrets_dict["private_key"] = secrets_dict["private_key"].replace("\\n", "\n")
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(secrets_dict, scope)
+        
     client = gspread.authorize(creds)
     return client.open("Railway Weld Database").worksheet("WeldDetails")
 
