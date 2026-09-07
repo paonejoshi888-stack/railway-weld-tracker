@@ -39,7 +39,7 @@ if not check_password():
     st.stop()
 
 # =========================================================
-# 1. DATABASE CONNECTION
+# 1. DATABASE CONNECTION & HELPER LOGIC
 # =========================================================
 st.title("🚆 Railway Weld Record Manager")
 MIN_DATE = datetime.date(1994, 1, 1)
@@ -52,6 +52,21 @@ def parse_date(date_str):
         if "/" in date_str: return datetime.datetime.strptime(date_str, "%d/%m/%Y").date()
         else: return datetime.date.fromisoformat(date_str)
     except ValueError: return None
+
+# Helper to map kilometer text to JE Jurisdiction
+def assign_je(loc_str):
+    if not loc_str or pd.isna(loc_str): return "Unassigned"
+    match = re.search(r'(\d+)', str(loc_str))
+    if not match: return "Unassigned"
+    
+    km_val = int(match.group(1))
+    
+    if 0 <= km_val <= 23: return "JE/KOL (Km 0-23)"
+    elif 24 <= km_val <= 46: return "JE/VEER (Km 24-46)"
+    elif 47 <= km_val <= 79: return "JE/KFD (Km 47-79)"
+    elif 80 <= km_val <= 119: return "JE/KHED (Km 80-119)"
+    elif 120 <= km_val <= 154: return "JE/CHI (Km 120-154)"
+    else: return "Outside Range (>154)"
 
 @st.cache_resource
 def init_connection():
@@ -87,7 +102,7 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "🩺 USFD Testing", 
     "✏️ Modify Weld", 
     "🗑️ Delete", 
-    "📊 View Database"
+    "📊 View & Reports"
 ])
 
 # ---------------------------------------------------------
@@ -151,7 +166,7 @@ with tab1:
                         st.success(f"✅ Record '{assembled_id}' successfully added to Weld Database!")
 
 # ---------------------------------------------------------
-# TAB 2: USFD TESTING (Multi-History) -> Goes to USFDDetails
+# TAB 2: USFD TESTING (Multi-History with Duplicate Check & Deletion)
 # ---------------------------------------------------------
 with tab2:
     st.subheader("USFD Testing Data & History")
@@ -172,7 +187,6 @@ with tab2:
             if not usfd_df.empty and "AT weld ID" in usfd_df.columns:
                 history_df = usfd_df[usfd_df["AT weld ID"].astype(str) == search_clean]
             
-            # 1. Show the historical data table
             if not history_df.empty:
                 st.markdown(f"### 📜 Test History for {search_clean}")
                 st.dataframe(history_df, use_container_width=True)
@@ -180,9 +194,9 @@ with tab2:
                 st.info(f"No previous USFD tests found for {search_clean}. The next entry will be its first test.")
             
             st.markdown("---")
-            action = st.radio("What would you like to do?", ["Log a New Test", "Edit a Past Test"], horizontal=True)
+            action = st.radio("What would you like to do?", ["Log a New Test", "Edit a Past Test", "Delete a Past Test"], horizontal=True)
             
-            # 2A. Log a brand new test (Appends a row)
+            # 2A. Log a brand new test with Duplicate Date Check
             if action == "Log a New Test":
                 with st.form("usfd_add_form"):
                     c1, c2 = st.columns(2)
@@ -203,19 +217,30 @@ with tab2:
                         if not all([ua_du, ua_due, ua_loc.strip(), ua_class]):
                             st.error("Please fill all required fields (*)")
                         else:
-                            row_data = [
-                                search_clean, ua_du.strftime("%d/%m/%Y"), ua_due.strftime("%d/%m/%Y"), 
-                                ua_loc.strip(), ua_flaw, ua_probe, int(ua_int), ua_class
-                            ]
-                            usfd_sheet.append_row(row_data)
-                            st.success("✅ New test logged! Click 'Fetch USFD Records' to refresh history.")
+                            date_str = ua_du.strftime("%d/%m/%Y")
+                            
+                            # Check for existing entry with same Weld ID and same Testing Date
+                            is_duplicate = False
+                            if not history_df.empty:
+                                existing_dates = history_df["Date of USFD testing"].astype(str).str.strip().tolist()
+                                if date_str in existing_dates:
+                                    is_duplicate = True
+                                    
+                            if is_duplicate:
+                                st.error(f"❌ Duplicate Entry Blocked! A USFD test for weld '{search_clean}' on date '{date_str}' has already been logged. You cannot enter two tests on the same date for the same weld.")
+                            else:
+                                row_data = [
+                                    search_clean, date_str, ua_due.strftime("%d/%m/%Y"), 
+                                    ua_loc.strip(), ua_flaw, ua_probe, int(ua_int), ua_class
+                                ]
+                                usfd_sheet.append_row(row_data)
+                                st.success("✅ New test logged successfully! Click 'Fetch USFD Records' to refresh history.")
             
-            # 2B. Edit an old test (Updates specific row)
+            # 2B. Edit an old test
             elif action == "Edit a Past Test":
                 if history_df.empty:
                     st.warning("No past tests available to edit.")
                 else:
-                    # Create a dropdown mapping the UI text to the real DataFrame Index
                     opts = {idx: f"Test Date: {row['Date of USFD testing']} | Class: {row.get('Classification','')}" for idx, row in history_df.iterrows()}
                     sel_idx = st.selectbox("Select Test to Correct:", options=list(opts.keys()), format_func=lambda x: opts[x])
                     d = history_df.loc[sel_idx].to_dict()
@@ -253,6 +278,20 @@ with tab2:
                                 row_num = int(sel_idx) + 2
                                 usfd_sheet.update(f"A{row_num}:H{row_num}", [row_data])
                                 st.success("✅ Historical record updated! Click 'Fetch USFD Records' to refresh history.")
+
+            # 2C. Delete a specific past test
+            elif action == "Delete a Past Test":
+                if history_df.empty:
+                    st.warning("No past tests available to delete.")
+                else:
+                    del_opts = {idx: f"Test Date: {row['Date of USFD testing']} | Location: {row.get('Location','')} | Class: {row.get('Classification','')}" for idx, row in history_df.iterrows()}
+                    sel_del_idx = st.selectbox("Select Test to Permanently Delete:", options=list(del_opts.keys()), format_func=lambda x: del_opts[x])
+                    
+                    st.warning("⚠️ Warning: This will permanently delete only this specific test record.")
+                    if st.button("Delete Selected Test", type="primary"):
+                        row_num = int(sel_del_idx) + 2
+                        usfd_sheet.delete_rows(row_num)
+                        st.success("🗑️ Specific test record successfully deleted! Click 'Fetch USFD Records' to refresh history.")
 
 # ---------------------------------------------------------
 # TAB 3: MODIFY WELD (MMG)
@@ -324,16 +363,13 @@ with tab4:
             usfd_df = get_usfd_df()
             deleted_something = False
             
-            # Delete from USFD sheet first (Multiple rows possible)
             if not usfd_df.empty and "AT weld ID" in usfd_df.columns and del_clean in usfd_df["AT weld ID"].astype(str).values:
                 usfd_indices = usfd_df[usfd_df["AT weld ID"].astype(str) == del_clean].index.tolist()
-                # Crucial: Delete from bottom up so row indexes don't shift during deletion loop!
                 for idx in sorted(usfd_indices, reverse=True):
                     usfd_sheet.delete_rows(int(idx) + 2)
                 st.success(f"🗑️ Deleted {len(usfd_indices)} historical tests from USFD Database.")
                 deleted_something = True
                 
-            # Delete from Master Weld sheet
             if not weld_df.empty and del_clean in weld_df["AT weld ID"].astype(str).values:
                 row_idx = weld_df[weld_df["AT weld ID"].astype(str) == del_clean].index[0]
                 weld_sheet.delete_rows(int(row_idx) + 2)
@@ -344,50 +380,64 @@ with tab4:
                 st.error(f"Record '{del_clean}' not found in any database.")
 
 # ---------------------------------------------------------
-# TAB 5: VIEW DATABASES 
+# TAB 5: VIEW DATABASES & JE JURISDICTION REPORTS
 # ---------------------------------------------------------
 with tab5:
-    st.subheader("Live Google Sheet Views")
+    st.subheader("Live Databases & Jurisdiction Reports")
     
-    st.markdown("### 1. MMG Weld Database")
     weld_df = get_weld_df()
-    if weld_df.empty: st.info("Weld database is empty.")
-    else: st.dataframe(weld_df, use_container_width=True)
-    
-    st.markdown("### 2. USFD Testing Database (Log)")
     usfd_df = get_usfd_df()
-    if usfd_df.empty: st.info("USFD database is empty.")
-    else: st.dataframe(usfd_df, use_container_width=True)
     
-    st.markdown("---")
-    st.subheader("📥 Download Data")
-    
-    col_dl1, col_dl2 = st.columns(2)
-    
-    try:
-        buffer = io.BytesIO()
-        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-            weld_df.to_excel(writer, index=False, sheet_name='Weld_Details')
-            usfd_df.to_excel(writer, index=False, sheet_name='USFD_History')
+    if not weld_df.empty:
+        weld_df["Assigned JE"] = weld_df["Location"].apply(assign_je)
         
-        col_dl1.download_button(
-            label="📊 Download Combined Excel (.xlsx)",
-            data=buffer.getvalue(),
-            file_name=f"Weld_and_USFD_Records_{datetime.date.today()}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
-    except Exception:
-        col_dl1.info("⚠️ Ensure 'openpyxl' is in requirements.txt for Excel downloads.")
+        st.markdown("### 📍 Filter by JE Jurisdiction")
+        je_options = ["All Division (Complete)", "JE/KOL (Km 0-23)", "JE/VEER (Km 24-46)", "JE/KFD (Km 47-79)", "JE/KHED (Km 80-119)", "JE/CHI (Km 120-154)", "Unassigned"]
+        selected_je = st.selectbox("Select Junior Engineer Jurisdiction:", je_options)
+        
+        if selected_je != "All Division (Complete)":
+            filtered_weld_df = weld_df[weld_df["Assigned JE"] == selected_je]
+            valid_ids = filtered_weld_df["AT weld ID"].tolist()
+            filtered_usfd_df = usfd_df[usfd_df["AT weld ID"].isin(valid_ids)] if not usfd_df.empty else pd.DataFrame()
+        else:
+            filtered_weld_df = weld_df
+            filtered_usfd_df = usfd_df
+            
+        st.markdown(f"### 1. MMG Weld Database ({selected_je})")
+        st.dataframe(filtered_weld_df, use_container_width=True)
+        
+        st.markdown(f"### 2. USFD Testing Database History ({selected_je})")
+        if filtered_usfd_df.empty: 
+            st.info("No USFD test records found for this jurisdiction selection.")
+        else: 
+            st.dataframe(filtered_usfd_df, use_container_width=True)
+            
+        st.markdown("---")
+        st.subheader(f"📥 Download Reports for: {selected_je}")
+        
+        col_dl1, col_dl2 = st.columns(2)
+        
+        try:
+            buffer = io.BytesIO()
+            with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                filtered_weld_df.to_excel(writer, index=False, sheet_name='Weld_Details')
+                if not filtered_usfd_df.empty:
+                    filtered_usfd_df.to_excel(writer, index=False, sheet_name='USFD_History')
+            
+            col_dl1.download_button(
+                label=f"📊 Download Excel Report ({selected_je})",
+                data=buffer.getvalue(),
+                file_name=f"Weld_Report_{selected_je.split()[0]}_{datetime.date.today()}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        except Exception:
+            col_dl1.info("⚠️ Ensure 'openpyxl' is in requirements.txt for Excel downloads.")
 
-    col_dl2.download_button(
-        label="📄 Download Weld Details (CSV)",
-        data=weld_df.to_csv(index=False).encode('utf-8'),
-        file_name=f"Weld_Details_{datetime.date.today()}.csv",
-        mime="text/csv",
-    )
-    col_dl2.download_button(
-        label="📄 Download USFD History (CSV)",
-        data=usfd_df.to_csv(index=False).encode('utf-8'),
-        file_name=f"USFD_History_{datetime.date.today()}.csv",
-        mime="text/csv",
-    )
+        col_dl2.download_button(
+            label=f"📄 Download Weld CSV ({selected_je})",
+            data=filtered_weld_df.to_csv(index=False).encode('utf-8'),
+            file_name=f"Weld_Details_{selected_je.split()[0]}_{datetime.date.today()}.csv",
+            mime="text/csv",
+        )
+    else:
+        st.info("The database is currently empty. Add records using the 'Add Weld' tab.")
