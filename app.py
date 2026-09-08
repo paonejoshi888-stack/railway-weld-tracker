@@ -53,20 +53,11 @@ def parse_date(date_str):
         else: return datetime.date.fromisoformat(date_str)
     except ValueError: return None
 
-# Helper to map kilometer text to JE Jurisdiction
-def assign_je(loc_str):
-    if not loc_str or pd.isna(loc_str): return "Unassigned"
+# New Dynamic Helper: Extracts just the raw KM number from the location text
+def extract_km(loc_str):
+    if not loc_str or pd.isna(loc_str): return -1
     match = re.search(r'(\d+)', str(loc_str))
-    if not match: return "Unassigned"
-    
-    km_val = int(match.group(1))
-    
-    if 0 <= km_val <= 23: return "JE/KOL (Km 0-23)"
-    elif 24 <= km_val <= 46: return "JE/VEER (Km 24-46)"
-    elif 47 <= km_val <= 79: return "JE/KFD (Km 47-79)"
-    elif 80 <= km_val <= 119: return "JE/KHED (Km 80-119)"
-    elif 120 <= km_val <= 154: return "JE/CHI (Km 120-154)"
-    else: return "Outside Range (>154)"
+    return int(match.group(1)) if match else -1
 
 @st.cache_resource
 def init_connection():
@@ -106,7 +97,7 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 ])
 
 # ---------------------------------------------------------
-# TAB 1: ADD WELD (MMG) -> Goes to WeldDetails
+# TAB 1: ADD WELD (MMG)
 # ---------------------------------------------------------
 with tab1:
     st.subheader("Add a New Weld Record (MMG Team)")
@@ -166,7 +157,7 @@ with tab1:
                         st.success(f"✅ Record '{assembled_id}' successfully added to Weld Database!")
 
 # ---------------------------------------------------------
-# TAB 2: USFD TESTING (Multi-History with Duplicate Check & Deletion)
+# TAB 2: USFD TESTING 
 # ---------------------------------------------------------
 with tab2:
     st.subheader("USFD Testing Data & History")
@@ -196,7 +187,6 @@ with tab2:
             st.markdown("---")
             action = st.radio("What would you like to do?", ["Log a New Test", "Edit a Past Test", "Delete a Past Test"], horizontal=True)
             
-            # 2A. Log a brand new test with Duplicate Date Check
             if action == "Log a New Test":
                 with st.form("usfd_add_form"):
                     c1, c2 = st.columns(2)
@@ -218,8 +208,6 @@ with tab2:
                             st.error("Please fill all required fields (*)")
                         else:
                             date_str = ua_du.strftime("%d/%m/%Y")
-                            
-                            # Check for existing entry with same Weld ID and same Testing Date
                             is_duplicate = False
                             if not history_df.empty:
                                 existing_dates = history_df["Date of USFD testing"].astype(str).str.strip().tolist()
@@ -227,7 +215,7 @@ with tab2:
                                     is_duplicate = True
                                     
                             if is_duplicate:
-                                st.error(f"❌ Duplicate Entry Blocked! A USFD test for weld '{search_clean}' on date '{date_str}' has already been logged. You cannot enter two tests on the same date for the same weld.")
+                                st.error(f"❌ Duplicate Entry Blocked! A USFD test for weld '{search_clean}' on date '{date_str}' has already been logged.")
                             else:
                                 row_data = [
                                     search_clean, date_str, ua_due.strftime("%d/%m/%Y"), 
@@ -236,7 +224,6 @@ with tab2:
                                 usfd_sheet.append_row(row_data)
                                 st.success("✅ New test logged successfully! Click 'Fetch USFD Records' to refresh history.")
             
-            # 2B. Edit an old test
             elif action == "Edit a Past Test":
                 if history_df.empty:
                     st.warning("No past tests available to edit.")
@@ -279,7 +266,6 @@ with tab2:
                                 usfd_sheet.update(f"A{row_num}:H{row_num}", [row_data])
                                 st.success("✅ Historical record updated! Click 'Fetch USFD Records' to refresh history.")
 
-            # 2C. Delete a specific past test
             elif action == "Delete a Past Test":
                 if history_df.empty:
                     st.warning("No past tests available to delete.")
@@ -380,7 +366,7 @@ with tab4:
                 st.error(f"Record '{del_clean}' not found in any database.")
 
 # ---------------------------------------------------------
-# TAB 5: VIEW DATABASES & JE JURISDICTION REPORTS
+# TAB 5: VIEW DATABASES & DYNAMIC REPORTS
 # ---------------------------------------------------------
 with tab5:
     st.subheader("Live Databases & Jurisdiction Reports")
@@ -389,54 +375,80 @@ with tab5:
     usfd_df = get_usfd_df()
     
     if not weld_df.empty:
-        weld_df["Assigned JE"] = weld_df["Location"].apply(assign_je)
+        # Create a temporary numeric column for filtering
+        weld_df["KM_Value"] = weld_df["Location"].apply(extract_km)
         
-        st.markdown("### 📍 Filter by JE Jurisdiction")
-        je_options = ["All Division (Complete)", "JE/KOL (Km 0-23)", "JE/VEER (Km 24-46)", "JE/KFD (Km 47-79)", "JE/KHED (Km 80-119)", "JE/CHI (Km 120-154)", "Unassigned"]
-        selected_je = st.selectbox("Select Junior Engineer Jurisdiction:", je_options)
+        st.markdown("### 📍 Filter by Engineering Jurisdiction")
         
-        if selected_je != "All Division (Complete)":
-            filtered_weld_df = weld_df[weld_df["Assigned JE"] == selected_je]
-            valid_ids = filtered_weld_df["AT weld ID"].tolist()
-            filtered_usfd_df = usfd_df[usfd_df["AT weld ID"].isin(valid_ids)] if not usfd_df.empty else pd.DataFrame()
-        else:
+        # New Dictionary Mapping the Jurisdiction to its (Min KM, Max KM) Range
+        je_options = {
+            "All Division (Complete)": (-1, 9999),
+            "DEN/CHI (Km 0-154)": (0, 154),
+            "SSE/MNI (Km 0-79)": (0, 79),
+            "SSE/CHI (Km 80-154)": (80, 154),
+            "JE/KOL (Km 0-23)": (0, 23),
+            "JE/VEER (Km 24-46)": (24, 46),
+            "JE/KFD (Km 47-79)": (47, 79),
+            "JE/KHED (Km 80-119)": (80, 119),
+            "JE/CHI (Km 120-154)": (120, 154),
+            "Unassigned / Invalid KM": (-1, -1)
+        }
+        
+        selected_jurisdiction = st.selectbox("Select Jurisdiction:", list(je_options.keys()))
+        min_km, max_km = je_options[selected_jurisdiction]
+        
+        # Apply the numeric range filter
+        if selected_jurisdiction == "All Division (Complete)":
             filtered_weld_df = weld_df
-            filtered_usfd_df = usfd_df
+        elif selected_jurisdiction == "Unassigned / Invalid KM":
+            filtered_weld_df = weld_df[weld_df["KM_Value"] == -1]
+        else:
+            filtered_weld_df = weld_df[(weld_df["KM_Value"] >= min_km) & (weld_df["KM_Value"] <= max_km)]
             
-        st.markdown(f"### 1. MMG Weld Database ({selected_je})")
-        st.dataframe(filtered_weld_df, use_container_width=True)
+        # Drop the temporary column so it doesn't show up in the tables or downloads
+        display_weld_df = filtered_weld_df.drop(columns=["KM_Value"])
         
-        st.markdown(f"### 2. USFD Testing Database History ({selected_je})")
-        if filtered_usfd_df.empty: 
+        # Filter USFD to match
+        valid_ids = display_weld_df["AT weld ID"].tolist()
+        display_usfd_df = usfd_df[usfd_df["AT weld ID"].isin(valid_ids)] if not usfd_df.empty else pd.DataFrame()
+            
+        st.markdown(f"### 1. MMG Weld Database ({selected_jurisdiction})")
+        st.dataframe(display_weld_df, use_container_width=True)
+        
+        st.markdown(f"### 2. USFD Testing Database History ({selected_jurisdiction})")
+        if display_usfd_df.empty: 
             st.info("No USFD test records found for this jurisdiction selection.")
         else: 
-            st.dataframe(filtered_usfd_df, use_container_width=True)
+            st.dataframe(display_usfd_df, use_container_width=True)
             
         st.markdown("---")
-        st.subheader(f"📥 Download Reports for: {selected_je}")
+        st.subheader(f"📥 Download Reports for: {selected_jurisdiction}")
         
         col_dl1, col_dl2 = st.columns(2)
+        
+        # Extract a clean, short name for the downloaded files (e.g., "DEN/CHI" or "SSE/MNI")
+        file_prefix = selected_jurisdiction.split(" (")[0].replace("/", "_")
         
         try:
             buffer = io.BytesIO()
             with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                filtered_weld_df.to_excel(writer, index=False, sheet_name='Weld_Details')
-                if not filtered_usfd_df.empty:
-                    filtered_usfd_df.to_excel(writer, index=False, sheet_name='USFD_History')
+                display_weld_df.to_excel(writer, index=False, sheet_name='Weld_Details')
+                if not display_usfd_df.empty:
+                    display_usfd_df.to_excel(writer, index=False, sheet_name='USFD_History')
             
             col_dl1.download_button(
-                label=f"📊 Download Excel Report ({selected_je})",
+                label=f"📊 Download Excel Report ({selected_jurisdiction})",
                 data=buffer.getvalue(),
-                file_name=f"Weld_Report_{selected_je.split()[0]}_{datetime.date.today()}.xlsx",
+                file_name=f"Weld_Report_{file_prefix}_{datetime.date.today()}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
         except Exception:
             col_dl1.info("⚠️ Ensure 'openpyxl' is in requirements.txt for Excel downloads.")
 
         col_dl2.download_button(
-            label=f"📄 Download Weld CSV ({selected_je})",
-            data=filtered_weld_df.to_csv(index=False).encode('utf-8'),
-            file_name=f"Weld_Details_{selected_je.split()[0]}_{datetime.date.today()}.csv",
+            label=f"📄 Download Weld CSV ({selected_jurisdiction})",
+            data=display_weld_df.to_csv(index=False).encode('utf-8'),
+            file_name=f"Weld_Details_{file_prefix}_{datetime.date.today()}.csv",
             mime="text/csv",
         )
     else:
