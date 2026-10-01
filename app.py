@@ -29,7 +29,7 @@ def check_password():
             users = {
                 "DEN_CHI": "pass123", "SSE_MNI": "pass123", "SSE_CHI": "pass123",
                 "JE_KOL": "pass123", "JE_VEER": "pass123", "JE_KFD": "pass123", 
-                "JE_KHED": "pass123", "JE_CHI": "pass123", "JE_RN": "pass123",
+                "JE_KHED": "pass123", "JE_CHI": "pass123", "JE_SGR": "pass123",
                 "SSE_SEC_RN": "pass123", "SSE_P_RN": "pass123", "AEN_RN": "pass123",
                 "JE_ADVI": "pass123", "JE_VBW": "pass123", "SSE_VID": "pass123",
                 "JE_KKW": "pass123", "JE_SWV": "pass123", "SSE_KKW": "pass123",
@@ -146,7 +146,7 @@ with tab1:
         add_ag = c8.text_input("Agency Code *", placeholder="e.g. TPP, ITC")
         add_sup = c9.text_input("Supervisor Code *", placeholder="e.g. JE/MMG")
         add_welder = c10.text_input("Welder Code *")
-        add_weldno = c11.text_input("Continuous Weld No. *", placeholder="Running serial no.")
+        add_weldno = c11.text_input("Weld No. *", placeholder="Running serial no.")
         
         c12, c13, c14 = st.columns(3)
         add_port = c12.text_input("Portion No.")
@@ -379,7 +379,7 @@ with tab3:
             m_ag = c8.text_input("Agency Code", value=str(d.get("Agency Code", "")))
             m_sup = c9.text_input("Supervisor Code", value=str(d.get("Supervisor Code", "")))
             m_welder = c10.text_input("Welder Code", value=str(d.get("Welder Code", "")))
-            m_weldno = c11.text_input("Continuous Weld No.", value=str(d.get("Continuous Weld No", "")))
+            m_weldno = c11.text_input("Weld No.", value=str(d.get("Weld No.", "")))
             
             c12, c13, c14 = st.columns(3)
             m_port = c12.text_input("Portion No.", value=str(d.get("Portion No", "")))
@@ -404,7 +404,6 @@ with tab3:
             m_10cl = c25.text_input("10cm Lat (mm)", value=str(d.get("10cm Lat Tolerance", "")))
 
             if st.form_submit_button("Update MMG Record", type="primary"):
-                # Regenerate RDSO based on possible changes
                 month = m_dw.strftime("%m")
                 year_yy = m_dw.strftime("%y")
                 rdso_mark = f"{month}-{year_yy}-{m_ag.strip().upper()}-{m_welder.strip()}-{m_weldno.strip()}"
@@ -488,7 +487,7 @@ with tab5:
             "AEN/RN (Km 154-226)": (154, 226),
             "SSE/VID (Km 226-299)": (226, 299),
             "SSE/KKW (Km 299-371)": (299, 371),
-            "JE/RN (Km 154-191)": (154, 191),
+            "JE/SGR (Km 154-191)": (154, 191),
             "JE/ADVI (Km 226-258)": (226, 258),
             "JE/VBW (Km 258-299)": (258, 299),
             "JE/KKW (Km 299-337)": (299, 337),
