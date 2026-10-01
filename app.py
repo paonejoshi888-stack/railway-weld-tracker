@@ -172,19 +172,16 @@ with tab1:
         
         ag_opts = ["", "ITC", "CKD", "OBOROI", "TPP", "SAGAR", "OTHER"]
         add_ag_sel = c8.selectbox("Agency Code *", ag_opts)
-        add_ag_oth = c8.text_input("Specify Agency", key="add_ag_oth") if add_ag_sel == "OTHER" else ""
-        add_ag = add_ag_oth if add_ag_sel == "OTHER" else add_ag_sel
+        add_ag_oth = c8.text_input("Specify Agency (if OTHER)", key="add_ag_oth")
         
-        sup_opts = ["", "JE/MMG/CHI", "JE/MMG/RN", "JE/MMG/RAJP", "JE/MMG/KUDL", "Other"]
+        sup_opts = ["", "JE/MMG/CHI", "JE/MMG/RN", "JE/MMG/RAJP", "JE/MMG/KUDL", "JE/MMG/VEER", "Other"]
         add_sup_sel = c9.selectbox("Supervisor Code *", sup_opts)
-        add_sup_oth = c9.text_input("Specify Supervisor", key="add_sup_oth") if add_sup_sel == "Other" else ""
-        add_sup = add_sup_oth if add_sup_sel == "Other" else add_sup_sel
+        add_sup_oth = c9.text_input("Specify Supervisor (if Other)", key="add_sup_oth")
         
         add_welder = c10.number_input("Welder Code *", min_value=0, step=1, value=0)
         
         add_weldno_pfx = c11.selectbox("Weld Pfx *", ["LH", "RN"])
         add_weldno_num = c11b.number_input("Weld No. (INT) *", min_value=0, step=1, value=0)
-        add_weldno = f"{add_weldno_pfx}{add_weldno_num}"
         
         c12, c13, c14 = st.columns(3)
         add_port = c12.text_input("Portion No.")
@@ -213,10 +210,15 @@ with tab1:
         submitted_weld = st.form_submit_button("Save Weld Record & Generate RDSO", type="primary")
         
         if submitted_weld:
+            # Reconcile "Other" fields
+            add_ag = add_ag_oth.strip() if add_ag_sel == "OTHER" else add_ag_sel
+            add_sup = add_sup_oth.strip() if add_sup_sel == "Other" else add_sup_sel
+            add_weldno = f"{add_weldno_pfx}{add_weldno_num}"
+
             if not id_km.strip() or not id_tp.strip() or not id_side.strip():
                 st.error("Please fill all required Weld ID fields (digits).")
             elif not all([add_dw, add_loc, add_ml, add_lhrh, add_sec, add_rail, add_ag, add_sup]):
-                st.error("Please fill all required string dropdowns & locations (*).")
+                st.error("Please fill all required fields (*). If you selected 'Other', ensure you typed the name.")
             else:
                 assembled_id = f"AT{id_km.strip().zfill(3)}-{id_tp.strip().zfill(2)}-{id_side.strip().zfill(2)}{id_let.strip().upper()}"
                 
@@ -415,7 +417,7 @@ with tab2:
                     if st.button("Delete Selected Test", type="primary"):
                         row_num = int(sel_del_idx) + 2
                         usfd_sheet.delete_rows(row_num)
-                        st.success("🗑️️ Specific test record successfully deleted!")
+                        st.success("🗑 Specific test record successfully deleted!")
 
 # ---------------------------------------------------------
 # TAB 3: MODIFY WELD (MMG)
@@ -459,19 +461,18 @@ with tab3:
             m_rm = c7.text_input("Rolling Mark", value=str(d.get("Rolling Mark", "")))
 
             c8, c9, c10, c11, c11b = st.columns([1.5, 2, 1, 1, 1])
+            
             ag_opts = ["", "ITC", "CKD", "OBOROI", "TPP", "SAGAR", "OTHER"]
             db_ag = str(d.get("Agency Code", ""))
-            ag_idx = ag_opts.index(db_ag) if db_ag in ag_opts else ag_opts.index("OTHER") if db_ag else 0
+            ag_idx = ag_opts.index(db_ag) if db_ag in ag_opts else (len(ag_opts)-1 if db_ag else 0)
             m_ag_sel = c8.selectbox("Agency Code", ag_opts, index=ag_idx)
-            m_ag_oth = c8.text_input("Specify Agency", value=db_ag if ag_idx == 6 else "") if m_ag_sel == "OTHER" else ""
-            m_ag = m_ag_oth if m_ag_sel == "OTHER" else m_ag_sel
+            m_ag_oth = c8.text_input("Specify Agency (if OTHER)", value=db_ag if ag_idx == (len(ag_opts)-1) else "", key="m_ag_oth")
 
-            sup_opts = ["", "JE/MMG/CHI", "JE/MMG/RN", "JE/MMG/RAJP", "JE/MMG/KUDL", "Other"]
+            sup_opts = ["", "JE/MMG/CHI", "JE/MMG/RN", "JE/MMG/RAJP", "JE/MMG/KUDL", "JE/MMG/VEER", "Other"]
             db_sup = str(d.get("Supervisor Code", ""))
-            sup_idx = sup_opts.index(db_sup) if db_sup in sup_opts else sup_opts.index("Other") if db_sup else 0
+            sup_idx = sup_opts.index(db_sup) if db_sup in sup_opts else (len(sup_opts)-1 if db_sup else 0)
             m_sup_sel = c9.selectbox("Supervisor Code", sup_opts, index=sup_idx)
-            m_sup_oth = c9.text_input("Specify Supervisor", value=db_sup if sup_idx == 5 else "") if m_sup_sel == "Other" else ""
-            m_sup = m_sup_oth if m_sup_sel == "Other" else m_sup_sel
+            m_sup_oth = c9.text_input("Specify Supervisor (if Other)", value=db_sup if sup_idx == (len(sup_opts)-1) else "", key="m_sup_oth")
 
             m_welder = c10.number_input("Welder Code", min_value=0, step=1, value=safe_int(d.get("Welder Code", 0)))
             
@@ -480,7 +481,6 @@ with tab3:
             num_val = safe_int(re.sub(r'\D', '', db_weldno))
             m_weldno_pfx = c11.selectbox("Weld Pfx", ["LH", "RN"], index=["LH", "RN"].index(pfx_val))
             m_weldno_num = c11b.number_input("Weld No. (INT)", min_value=0, step=1, value=num_val)
-            m_weldno = f"{m_weldno_pfx}{m_weldno_num}"
             
             c12, c13, c14 = st.columns(3)
             m_port = c12.text_input("Portion No.", value=str(d.get("Portion No", "")))
@@ -505,25 +505,32 @@ with tab3:
             m_10cl = c25.number_input("10cm Lat (mm)", step=1, value=safe_int(d.get("10cm Lat Tolerance", 0)))
 
             if st.form_submit_button("Update MMG Record", type="primary"):
-                month = m_dw.strftime("%m")
-                year_yy = m_dw.strftime("%y")
-                rdso_mark = f"{month}-{year_yy}-{m_ag.strip().upper()}-{m_welder}-{m_weldno}"
-                
-                timestamp = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-                dpm_str = m_dpm.strftime("%d/%m/%Y") if m_dpm else ""
+                m_ag = m_ag_oth.strip() if m_ag_sel == "OTHER" else m_ag_sel
+                m_sup = m_sup_oth.strip() if m_sup_sel == "Other" else m_sup_sel
+                m_weldno = f"{m_weldno_pfx}{m_weldno_num}"
 
-                updated_values = [
-                    str(d.get("AT weld ID")), m_dw.strftime("%d/%m/%Y"), m_loc.strip(), m_ml, m_lhrh, 
-                    m_sec.strip(), m_rail.strip(), m_port.strip(), m_batch.strip(), m_rm.strip(), 
-                    m_ag.strip().upper(), m_sup.strip(), int(m_welder), m_weldno, dpm_str, 
-                    int(m_rt), int(m_bf), int(m_bt), int(m_fg), int(m_mw), 
-                    int(m_ph), int(m_1mt), int(m_1ms), int(m_10cv), int(m_10cl), 
-                    int(m_tp), rdso_mark, st.session_state["user"], timestamp
-                ]
-                row_num = st.session_state['mod_weld_row']
-                weld_sheet.update(f"A{row_num}:AC{row_num}", [updated_values])
-                st.success(f"✅ MMG Record updated! New RDSO Mark: {rdso_mark}")
-                st.session_state.pop('mod_weld_data', None)
+                if not all([m_dw, m_loc, m_ml, m_lhrh, m_sec, m_rail, m_ag, m_sup]):
+                    st.error("Please fill all required fields. If you selected 'Other', ensure you typed the name.")
+                else:
+                    month = m_dw.strftime("%m")
+                    year_yy = m_dw.strftime("%y")
+                    rdso_mark = f"{month}-{year_yy}-{m_ag.strip().upper()}-{m_welder}-{m_weldno}"
+                    
+                    timestamp = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+                    dpm_str = m_dpm.strftime("%d/%m/%Y") if m_dpm else ""
+
+                    updated_values = [
+                        str(d.get("AT weld ID")), m_dw.strftime("%d/%m/%Y"), m_loc.strip(), m_ml, m_lhrh, 
+                        m_sec.strip(), m_rail.strip(), m_port.strip(), m_batch.strip(), m_rm.strip(), 
+                        m_ag.strip().upper(), m_sup.strip(), int(m_welder), m_weldno, dpm_str, 
+                        int(m_rt), int(m_bf), int(m_bt), int(m_fg), int(m_mw), 
+                        int(m_ph), int(m_1mt), int(m_1ms), int(m_10cv), int(m_10cl), 
+                        int(m_tp), rdso_mark, st.session_state["user"], timestamp
+                    ]
+                    row_num = st.session_state['mod_weld_row']
+                    weld_sheet.update(f"A{row_num}:AC{row_num}", [updated_values])
+                    st.success(f"✅ MMG Record updated! New RDSO Mark: {rdso_mark}")
+                    st.session_state.pop('mod_weld_data', None)
 
 # ---------------------------------------------------------
 # TAB 4: DELETE RECORD (Cascading Delete)
@@ -546,7 +553,7 @@ with tab4:
                 usfd_indices = usfd_df[usfd_df["AT weld ID"].astype(str) == del_clean].index.tolist()
                 for idx in sorted(usfd_indices, reverse=True):
                     usfd_sheet.delete_rows(int(idx) + 2)
-                st.success(f"🗑️️ Deleted {len(usfd_indices)} historical tests from USFD Database.")
+                st.success(f"🗑 Deleted {len(usfd_indices)} historical tests from USFD Database.")
                 deleted_something = True
                 
             if not weld_df.empty and del_clean in weld_df["AT weld ID"].astype(str).values:
