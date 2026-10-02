@@ -59,7 +59,6 @@ if st.sidebar.button("Log Out"):
 st.title("🚆 Railway Weld Record Manager")
 MIN_DATE = datetime.date(1994, 1, 1)
 
-# Global Jurisdiction Mapping
 JE_OPTIONS = {
     "All Division (Complete)": (-1, 9999),
     "DEN/CHI (Km 0-154)": (0, 154),
@@ -84,6 +83,15 @@ JE_OPTIONS = {
     "Unassigned / Invalid KM": (-1, -1)
 }
 
+SECTION_OPTIONS = [
+    "", "ROHA-KOL", "KOL-INP", "INP-MNI", "MNI-GNO", "GNO-VEER", "VEER-SAPE", 
+    "SAPE-KFD", "KFD-VINH", "VINH-DWV", "DWV-KLBN", "KLBN-KHED", "KHED-ANO", 
+    "ANO-CHI", "CHI-KMAH", "KMAH-SVX", "SVX-AVRD", "AVRD-KDVI", "KDVI-SGR", 
+    "SGR-UKC", "UKC-BHOKE", "BHOKE-RN", "RN-NIV", "NIV-ADVI", "ADVI-VRLI", 
+    "VRLI-VID", "VID-RAJP", "RAJP-KRPN", "KRPN-VBW", "VBW-ACRN", "ACRN-NAN", 
+    "NAN-KKW", "KKW-SNDD", "SNDD-KUDL", "KUDL-ZARP", "ZARP-SWV", "SWV-MADR", "MADR-PERN"
+]
+
 def parse_date(date_str):
     if not date_str or pd.isna(date_str): return None
     date_str = str(date_str).strip()
@@ -101,6 +109,25 @@ def extract_km(loc_str):
 def safe_int(val):
     try: return int(float(val))
     except: return 0
+
+def safe_float(val):
+    try: return float(val)
+    except: return 0.0
+
+def parse_time_val(val):
+    if val is None or pd.isna(val) or str(val).strip() == "":
+        return 0, 0
+    val_str = str(val).strip()
+    if ":" in val_str:
+        parts = val_str.split(":")
+        try: return int(parts[0]), int(parts[1])
+        except: return 0, 0
+    else:
+        try:
+            v = int(float(val_str))
+            return v // 100, v % 100
+        except:
+            return 0, 0
 
 @st.cache_resource
 def init_connection():
@@ -163,12 +190,12 @@ with tab1:
         add_lhrh = c4.selectbox("LH/RH *", ["", "LH", "RH"])
         
         c5, c6, c7 = st.columns(3)
-        add_sec = c5.text_input("Section *")
+        add_sec = c5.selectbox("Section *", SECTION_OPTIONS)
         add_rail = c6.selectbox("Rail Details *", ["", "52KG", "60KG"])
         add_rm = c7.text_input("Rolling Mark *")
 
         st.markdown("**3. Materials & Agency**")
-        c8, c9, c10, c11, c11b = st.columns([1.5, 2, 1, 1, 1])
+        c8, c9, c10, c11, c11b = st.columns([1.5, 2, 1.5, 1, 1])
         
         ag_opts = ["", "ITC", "CKD", "OBOROI", "TPP", "SAGAR", "OTHER"]
         add_ag_sel = c8.selectbox("Agency Code *", ag_opts)
@@ -178,9 +205,9 @@ with tab1:
         add_sup_sel = c9.selectbox("Supervisor Code *", sup_opts)
         add_sup_oth = c9.text_input("Specify Supervisor (if Other)", key="add_sup_oth")
         
-        add_welder = c10.number_input("Welder Code *", min_value=0, step=1, value=0)
+        add_welder = c10.text_input("Welder Code *", placeholder="e.g. 104, W1")
         
-        add_weldno_pfx = c11.selectbox("Weld Pfx *", ["LH", "RN"])
+        add_weldno_pfx = c11.selectbox("Weld Pfx *", ["LH", "RH"])
         add_weldno_num = c11b.number_input("Weld No. (INT) *", min_value=0, step=1, value=0)
         
         c12, c13, c14 = st.columns(3)
@@ -188,36 +215,57 @@ with tab1:
         add_batch = c13.text_input("Batch No.")
         add_dpm = c14.date_input("Date of Portion Mfg", value=None, min_value=MIN_DATE, format="DD/MM/YYYY")
 
-        st.markdown("**4. Execution Timings (Integer Only)**")
-        c15, c16, c17, c18 = st.columns(4)
-        add_rt = c15.number_input("Reaction Time (sec)", min_value=0, step=1, value=0)
-        add_bf = c16.number_input("Block Time From (HHMM)", min_value=0, max_value=2359, step=1, value=0)
-        add_bt = c17.number_input("Block Time To (HHMM)", min_value=0, max_value=2359, step=1, value=0)
-        add_fg = c18.number_input("Finishing/Grinding Time (HHMM)", min_value=0, max_value=2359, step=1, value=0)
-        
-        c19, c20, c21 = st.columns(3)
-        add_mw = c19.number_input("Mould Waiting Time (min)", min_value=0, step=1, value=0)
-        add_ph = c20.number_input("Pre-heating Time (min)", min_value=0, step=1, value=0)
-        add_tp = c21.number_input("Time 1st Train Passed (HHMM)", min_value=0, max_value=2359, step=1, value=0)
+        st.markdown("**4. Execution Timings**")
+        c_rt, c_mw, c_ph = st.columns(3)
+        add_rt = c_rt.number_input("Reaction Time (sec) [INT]", min_value=0, step=1, value=0)
+        add_mw = c_mw.number_input("Mould Waiting Time (min) [INT]", min_value=0, step=1, value=0)
+        add_ph = c_ph.number_input("Pre-heating Time (min) [INT]", min_value=0, step=1, value=0)
 
-        st.markdown("**5. Dimensional Tolerances (Integer mm)**")
+        st.markdown("*Clock Times (24-Hour Format)*")
+        t1, t2, t3, t4 = st.columns(4)
+        with t1:
+            st.markdown("**Block Time From**")
+            t1_h, t1_m = st.columns(2)
+            add_bf_h = t1_h.number_input("HH", min_value=0, max_value=23, step=1, value=0, key="a_bfh")
+            add_bf_m = t1_m.number_input("MM", min_value=0, max_value=59, step=1, value=0, key="a_bfm")
+        with t2:
+            st.markdown("**Block Time To**")
+            t2_h, t2_m = st.columns(2)
+            add_bt_h = t2_h.number_input("HH", min_value=0, max_value=23, step=1, value=0, key="a_bth")
+            add_bt_m = t2_m.number_input("MM", min_value=0, max_value=59, step=1, value=0, key="a_btm")
+        with t3:
+            st.markdown("**Finishing/Grinding**")
+            t3_h, t3_m = st.columns(2)
+            add_fg_h = t3_h.number_input("HH", min_value=0, max_value=23, step=1, value=0, key="a_fgh")
+            add_fg_m = t3_m.number_input("MM", min_value=0, max_value=59, step=1, value=0, key="a_fgm")
+        with t4:
+            st.markdown("**1st Train Passed**")
+            t4_h, t4_m = st.columns(2)
+            add_tp_h = t4_h.number_input("HH", min_value=0, max_value=23, step=1, value=0, key="a_tph")
+            add_tp_m = t4_m.number_input("MM", min_value=0, max_value=59, step=1, value=0, key="a_tpm")
+
+        st.markdown("**5. Dimensional Tolerances (Decimal mm)**")
         c22, c23, c24, c25 = st.columns(4)
-        add_1mt = c22.number_input("1m Top (mm)", step=1, value=0)
-        add_1ms = c23.number_input("1m Side (mm)", step=1, value=0)
-        add_10cv = c24.number_input("10cm Vert (mm)", step=1, value=0)
-        add_10cl = c25.number_input("10cm Lat (mm)", step=1, value=0)
+        add_1mt = c22.number_input("1m Top (mm)", step=0.1, value=0.0, format="%.2f")
+        add_1ms = c23.number_input("1m Side (mm)", step=0.1, value=0.0, format="%.2f")
+        add_10cv = c24.number_input("10cm Vert (mm)", step=0.1, value=0.0, format="%.2f")
+        add_10cl = c25.number_input("10cm Lat (mm)", step=0.1, value=0.0, format="%.2f")
 
         submitted_weld = st.form_submit_button("Save Weld Record & Generate RDSO", type="primary")
         
         if submitted_weld:
-            # Reconcile "Other" fields
             add_ag = add_ag_oth.strip() if add_ag_sel == "OTHER" else add_ag_sel
             add_sup = add_sup_oth.strip() if add_sup_sel == "Other" else add_sup_sel
             add_weldno = f"{add_weldno_pfx}{add_weldno_num}"
 
+            add_bf_str = f"{add_bf_h:02d}:{add_bf_m:02d}"
+            add_bt_str = f"{add_bt_h:02d}:{add_bt_m:02d}"
+            add_fg_str = f"{add_fg_h:02d}:{add_fg_m:02d}"
+            add_tp_str = f"{add_tp_h:02d}:{add_tp_m:02d}"
+
             if not id_km.strip() or not id_tp.strip() or not id_side.strip():
                 st.error("Please fill all required Weld ID fields (digits).")
-            elif not all([add_dw, add_loc, add_ml, add_lhrh, add_sec, add_rail, add_ag, add_sup]):
+            elif not all([add_dw, add_loc, add_ml, add_lhrh, add_sec, add_rail, add_ag, add_sup, add_welder.strip()]):
                 st.error("Please fill all required fields (*). If you selected 'Other', ensure you typed the name.")
             else:
                 assembled_id = f"AT{id_km.strip().zfill(3)}-{id_tp.strip().zfill(2)}-{id_side.strip().zfill(2)}{id_let.strip().upper()}"
@@ -231,7 +279,7 @@ with tab1:
                     else:
                         month = add_dw.strftime("%m")
                         year_yy = add_dw.strftime("%y")
-                        rdso_mark = f"{month}-{year_yy}-{add_ag.strip().upper()}-{add_welder}-{add_weldno}"
+                        rdso_mark = f"{month}-{year_yy}-{add_ag.strip().upper()}-{add_welder.strip()}-{add_weldno}"
                         
                         timestamp = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
                         dpm_str = add_dpm.strftime("%d/%m/%Y") if add_dpm else ""
@@ -239,10 +287,10 @@ with tab1:
                         new_row = [
                             assembled_id, add_dw.strftime("%d/%m/%Y"), add_loc.strip(), add_ml, add_lhrh, 
                             add_sec.strip(), add_rail.strip(), add_port.strip(), add_batch.strip(), 
-                            add_rm.strip(), add_ag.strip().upper(), add_sup.strip(), int(add_welder), 
-                            add_weldno, dpm_str, int(add_rt), int(add_bf), int(add_bt), 
-                            int(add_fg), int(add_mw), int(add_ph), int(add_1mt), int(add_1ms), 
-                            int(add_10cv), int(add_10cl), int(add_tp), rdso_mark, 
+                            add_rm.strip(), add_ag.strip().upper(), add_sup.strip(), add_welder.strip(), 
+                            add_weldno, dpm_str, int(add_rt), add_bf_str, add_bt_str, 
+                            add_fg_str, int(add_mw), int(add_ph), float(add_1mt), float(add_1ms), 
+                            float(add_10cv), float(add_10cl), add_tp_str, rdso_mark, 
                             st.session_state["user"], timestamp
                         ]
                         weld_sheet.append_row(new_row)
@@ -260,7 +308,6 @@ with tab2:
     if df_weld.empty:
         st.info("No welds currently exist in the MMG database.")
     else:
-        # Convert welding dates to actual Date objects for range filtering
         df_weld["ParsedDate"] = pd.to_datetime(df_weld["Date of Welding"], format="%d/%m/%Y", errors='coerce').dt.date
         df_weld["KM_Value"] = df_weld["Location"].apply(extract_km)
         
@@ -269,22 +316,36 @@ with tab2:
         end_d = c_s2.date_input("To Welding Date", value=datetime.date.today())
         sel_jur = c_s3.selectbox("Filter by Jurisdiction", list(JE_OPTIONS.keys()))
         
+        c_s4, c_s5 = st.columns(2)
+        sel_sec = c_s4.selectbox("Filter by Section", ["All Sections"] + SECTION_OPTIONS[1:])
+        sel_loc = c_s5.text_input("Filter by Location (e.g. Km 75, or 104/5)")
+
         min_k, max_k = JE_OPTIONS[sel_jur]
         
         mask_date = (df_weld["ParsedDate"] >= start_d) & (df_weld["ParsedDate"] <= end_d)
         
         if sel_jur == "All Division (Complete)":
-            mask_jur = True
+            mask_jur = pd.Series([True] * len(df_weld))
         elif sel_jur == "Unassigned / Invalid KM":
             mask_jur = (df_weld["KM_Value"] == -1)
         else:
             mask_jur = (df_weld["KM_Value"] >= min_k) & (df_weld["KM_Value"] <= max_k)
             
-        filtered_weld_df = df_weld[mask_date & mask_jur]
+        if sel_sec != "All Sections":
+            mask_sec = (df_weld["Section"] == sel_sec)
+        else:
+            mask_sec = pd.Series([True] * len(df_weld))
+            
+        if sel_loc.strip():
+            mask_loc = df_weld["Location"].astype(str).str.contains(sel_loc.strip(), case=False, na=False)
+        else:
+            mask_loc = pd.Series([True] * len(df_weld))
+            
+        filtered_weld_df = df_weld[mask_date & mask_jur & mask_sec & mask_loc]
         
         st.markdown("---")
         if filtered_weld_df.empty:
-            st.warning("No welds found matching this Date Range and Jurisdiction.")
+            st.warning("No welds found matching these Search Filters.")
             st.session_state.pop('usfd_active_search', None)
         else:
             weld_list = sorted(filtered_weld_df["AT weld ID"].tolist())
@@ -299,7 +360,6 @@ with tab2:
                 if usfd_search_id.strip():
                     st.session_state['usfd_active_search'] = usfd_search_id.strip().upper()
 
-    # If an ID is active, show the history and actions
     if 'usfd_active_search' in st.session_state and st.session_state['usfd_active_search']:
         search_clean = st.session_state['usfd_active_search']
         
@@ -453,14 +513,16 @@ with tab3:
             m_lhrh = c4.selectbox("LH/RH *", lh_opts, index=lh_opts.index(d.get("LH/RH")) if d.get("LH/RH") in lh_opts else 0)
             
             c5, c6, c7 = st.columns(3)
-            m_sec = c5.text_input("Section *", value=str(d.get("Section", "")))
+            db_sec = str(d.get("Section", ""))
+            sec_idx = SECTION_OPTIONS.index(db_sec) if db_sec in SECTION_OPTIONS else 0
+            m_sec = c5.selectbox("Section *", SECTION_OPTIONS, index=sec_idx)
             
             rail_opts = ["", "52KG", "60KG"]
             db_rail = str(d.get("Rail Details", ""))
             m_rail = c6.selectbox("Rail Details *", rail_opts, index=rail_opts.index(db_rail) if db_rail in rail_opts else 0)
             m_rm = c7.text_input("Rolling Mark", value=str(d.get("Rolling Mark", "")))
 
-            c8, c9, c10, c11, c11b = st.columns([1.5, 2, 1, 1, 1])
+            c8, c9, c10, c11, c11b = st.columns([1.5, 2, 1.5, 1, 1])
             
             ag_opts = ["", "ITC", "CKD", "OBOROI", "TPP", "SAGAR", "OTHER"]
             db_ag = str(d.get("Agency Code", ""))
@@ -474,12 +536,12 @@ with tab3:
             m_sup_sel = c9.selectbox("Supervisor Code", sup_opts, index=sup_idx)
             m_sup_oth = c9.text_input("Specify Supervisor (if Other)", value=db_sup if sup_idx == (len(sup_opts)-1) else "", key="m_sup_oth")
 
-            m_welder = c10.number_input("Welder Code", min_value=0, step=1, value=safe_int(d.get("Welder Code", 0)))
+            m_welder = c10.text_input("Welder Code", value=str(d.get("Welder Code", "")))
             
             db_weldno = str(d.get("Weld No.", ""))
-            pfx_val = "LH" if "LH" in db_weldno.upper() else "RN"
+            pfx_val = "LH" if "LH" in db_weldno.upper() else "RH"
             num_val = safe_int(re.sub(r'\D', '', db_weldno))
-            m_weldno_pfx = c11.selectbox("Weld Pfx", ["LH", "RN"], index=["LH", "RN"].index(pfx_val))
+            m_weldno_pfx = c11.selectbox("Weld Pfx", ["LH", "RH"], index=["LH", "RH"].index(pfx_val))
             m_weldno_num = c11b.number_input("Weld No. (INT)", min_value=0, step=1, value=num_val)
             
             c12, c13, c14 = st.columns(3)
@@ -487,34 +549,66 @@ with tab3:
             m_batch = c13.text_input("Batch No.", value=str(d.get("Batch No", "")))
             m_dpm = c14.date_input("Date of Portion Mfg", value=parse_date(d.get("Date of Portion Mfg")), min_value=MIN_DATE, format="DD/MM/YYYY")
 
-            c15, c16, c17, c18 = st.columns(4)
-            m_rt = c15.number_input("Reaction Time (sec)", min_value=0, step=1, value=safe_int(d.get("Reaction Time (sec)", 0)))
-            m_bf = c16.number_input("Block Time From (HHMM)", min_value=0, max_value=2359, step=1, value=safe_int(d.get("Block Time From", 0)))
-            m_bt = c17.number_input("Block Time To (HHMM)", min_value=0, max_value=2359, step=1, value=safe_int(d.get("Block Time To", 0)))
-            m_fg = c18.number_input("Finishing/Grinding Time (HHMM)", min_value=0, max_value=2359, step=1, value=safe_int(d.get("Finishing & Grinding Time", 0)))
-            
-            c19, c20, c21 = st.columns(3)
-            m_mw = c19.number_input("Mould Waiting Time (min)", min_value=0, step=1, value=safe_int(d.get("Mould Waiting Time (min)", 0)))
-            m_ph = c20.number_input("Pre-heating Time (min)", min_value=0, step=1, value=safe_int(d.get("Pre-heating Time (min)", 0)))
-            m_tp = c21.number_input("Time 1st Train Passed (HHMM)", min_value=0, max_value=2359, step=1, value=safe_int(d.get("Time 1st Train Passed", 0)))
+            st.markdown("**4. Execution Timings**")
+            c_rt, c_mw, c_ph = st.columns(3)
+            m_rt = c_rt.number_input("Reaction Time (sec) [INT]", min_value=0, step=1, value=safe_int(d.get("Reaction Time (sec)", 0)))
+            m_mw = c_mw.number_input("Mould Waiting Time (min) [INT]", min_value=0, step=1, value=safe_int(d.get("Mould Waiting Time (min)", 0)))
+            m_ph = c_ph.number_input("Pre-heating Time (min) [INT]", min_value=0, step=1, value=safe_int(d.get("Pre-heating Time (min)", 0)))
 
+            st.markdown("*Clock Times (24-Hour Format)*")
+            t1, t2, t3, t4 = st.columns(4)
+            
+            bf_db_h, bf_db_m = parse_time_val(d.get("Block Time From", ""))
+            with t1:
+                st.markdown("**Block Time From**")
+                t1_h, t1_m = st.columns(2)
+                m_bf_h = t1_h.number_input("HH", min_value=0, max_value=23, step=1, value=bf_db_h, key="m_bfh")
+                m_bf_m = t1_m.number_input("MM", min_value=0, max_value=59, step=1, value=bf_db_m, key="m_bfm")
+
+            bt_db_h, bt_db_m = parse_time_val(d.get("Block Time To", ""))
+            with t2:
+                st.markdown("**Block Time To**")
+                t2_h, t2_m = st.columns(2)
+                m_bt_h = t2_h.number_input("HH", min_value=0, max_value=23, step=1, value=bt_db_h, key="m_bth")
+                m_bt_m = t2_m.number_input("MM", min_value=0, max_value=59, step=1, value=bt_db_m, key="m_btm")
+
+            fg_db_h, fg_db_m = parse_time_val(d.get("Finishing & Grinding Time", ""))
+            with t3:
+                st.markdown("**Finishing/Grinding**")
+                t3_h, t3_m = st.columns(2)
+                m_fg_h = t3_h.number_input("HH", min_value=0, max_value=23, step=1, value=fg_db_h, key="m_fgh")
+                m_fg_m = t3_m.number_input("MM", min_value=0, max_value=59, step=1, value=fg_db_m, key="m_fgm")
+
+            tp_db_h, tp_db_m = parse_time_val(d.get("Time 1st Train Passed", ""))
+            with t4:
+                st.markdown("**1st Train Passed**")
+                t4_h, t4_m = st.columns(2)
+                m_tp_h = t4_h.number_input("HH", min_value=0, max_value=23, step=1, value=tp_db_h, key="m_tph")
+                m_tp_m = t4_m.number_input("MM", min_value=0, max_value=59, step=1, value=tp_db_m, key="m_tpm")
+
+            st.markdown("**5. Dimensional Tolerances (Decimal mm)**")
             c22, c23, c24, c25 = st.columns(4)
-            m_1mt = c22.number_input("1m Top (mm)", step=1, value=safe_int(d.get("1m Top Tolerance", 0)))
-            m_1ms = c23.number_input("1m Side (mm)", step=1, value=safe_int(d.get("1m Side Tolerance", 0)))
-            m_10cv = c24.number_input("10cm Vert (mm)", step=1, value=safe_int(d.get("10cm Vert Tolerance", 0)))
-            m_10cl = c25.number_input("10cm Lat (mm)", step=1, value=safe_int(d.get("10cm Lat Tolerance", 0)))
+            m_1mt = c22.number_input("1m Top (mm)", step=0.1, value=safe_float(d.get("1m Top Tolerance", 0)), format="%.2f")
+            m_1ms = c23.number_input("1m Side (mm)", step=0.1, value=safe_float(d.get("1m Side Tolerance", 0)), format="%.2f")
+            m_10cv = c24.number_input("10cm Vert (mm)", step=0.1, value=safe_float(d.get("10cm Vert Tolerance", 0)), format="%.2f")
+            m_10cl = c25.number_input("10cm Lat (mm)", step=0.1, value=safe_float(d.get("10cm Lat Tolerance", 0)), format="%.2f")
 
             if st.form_submit_button("Update MMG Record", type="primary"):
                 m_ag = m_ag_oth.strip() if m_ag_sel == "OTHER" else m_ag_sel
                 m_sup = m_sup_oth.strip() if m_sup_sel == "Other" else m_sup_sel
                 m_weldno = f"{m_weldno_pfx}{m_weldno_num}"
 
-                if not all([m_dw, m_loc, m_ml, m_lhrh, m_sec, m_rail, m_ag, m_sup]):
+                m_bf_str = f"{m_bf_h:02d}:{m_bf_m:02d}"
+                m_bt_str = f"{m_bt_h:02d}:{m_bt_m:02d}"
+                m_fg_str = f"{m_fg_h:02d}:{m_fg_m:02d}"
+                m_tp_str = f"{m_tp_h:02d}:{m_tp_m:02d}"
+
+                if not all([m_dw, m_loc, m_ml, m_lhrh, m_sec, m_rail, m_ag, m_sup, m_welder.strip()]):
                     st.error("Please fill all required fields. If you selected 'Other', ensure you typed the name.")
                 else:
                     month = m_dw.strftime("%m")
                     year_yy = m_dw.strftime("%y")
-                    rdso_mark = f"{month}-{year_yy}-{m_ag.strip().upper()}-{m_welder}-{m_weldno}"
+                    rdso_mark = f"{month}-{year_yy}-{m_ag.strip().upper()}-{m_welder.strip()}-{m_weldno}"
                     
                     timestamp = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
                     dpm_str = m_dpm.strftime("%d/%m/%Y") if m_dpm else ""
@@ -522,10 +616,10 @@ with tab3:
                     updated_values = [
                         str(d.get("AT weld ID")), m_dw.strftime("%d/%m/%Y"), m_loc.strip(), m_ml, m_lhrh, 
                         m_sec.strip(), m_rail.strip(), m_port.strip(), m_batch.strip(), m_rm.strip(), 
-                        m_ag.strip().upper(), m_sup.strip(), int(m_welder), m_weldno, dpm_str, 
-                        int(m_rt), int(m_bf), int(m_bt), int(m_fg), int(m_mw), 
-                        int(m_ph), int(m_1mt), int(m_1ms), int(m_10cv), int(m_10cl), 
-                        int(m_tp), rdso_mark, st.session_state["user"], timestamp
+                        m_ag.strip().upper(), m_sup.strip(), m_welder.strip(), m_weldno, dpm_str, 
+                        int(m_rt), m_bf_str, m_bt_str, m_fg_str, int(m_mw), 
+                        int(m_ph), float(m_1mt), float(m_1ms), float(m_10cv), float(m_10cl), 
+                        m_tp_str, rdso_mark, st.session_state["user"], timestamp
                     ]
                     row_num = st.session_state['mod_weld_row']
                     weld_sheet.update(f"A{row_num}:AC{row_num}", [updated_values])
