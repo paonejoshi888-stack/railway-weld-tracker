@@ -244,12 +244,13 @@ with tab1:
             add_tp_h = t4_h.number_input("HH", min_value=0, max_value=23, step=1, value=0, key="a_tph")
             add_tp_m = t4_m.number_input("MM", min_value=0, max_value=59, step=1, value=0, key="a_tpm")
 
-        st.markdown("**5. Dimensional Tolerances (Decimal mm)**")
-        c22, c23, c24, c25 = st.columns(4)
+        st.markdown("**5. Dimensional Tolerances & Status**")
+        c22, c23, c24, c25, c26 = st.columns(5)
         add_1mt = c22.number_input("1m Top (mm)", step=0.1, value=0.0, format="%.2f")
         add_1ms = c23.number_input("1m Side (mm)", step=0.1, value=0.0, format="%.2f")
         add_10cv = c24.number_input("10cm Vert (mm)", step=0.1, value=0.0, format="%.2f")
         add_10cl = c25.number_input("10cm Lat (mm)", step=0.1, value=0.0, format="%.2f")
+        add_status = c26.selectbox("Weld Status", ["OK", "Failed"], index=0)
 
         submitted_weld = st.form_submit_button("Save Weld Record & Generate RDSO", type="primary")
         
@@ -291,7 +292,7 @@ with tab1:
                             add_weldno, dpm_str, int(add_rt), add_bf_str, add_bt_str, 
                             add_fg_str, int(add_mw), int(add_ph), float(add_1mt), float(add_1ms), 
                             float(add_10cv), float(add_10cl), add_tp_str, rdso_mark, 
-                            st.session_state["user"], timestamp
+                            add_status, st.session_state["user"], timestamp
                         ]
                         weld_sheet.append_row(new_row)
                         st.success(f"✅ Record '{assembled_id}' added! Auto-Generated RDSO Marking: **{rdso_mark}**")
@@ -395,7 +396,7 @@ with tab2:
                     
                     c5, c6 = st.columns(2)
                     ua_int = c5.number_input("Flaw Intensity (0-100%)", min_value=0, max_value=100, value=0, step=1)
-                    ua_class = c6.selectbox("Classification *", ["", "OK", "DFWO", "DFWR"])
+                    ua_class = c6.selectbox("Classification *", ["", "OK", "DFWO", "DFWR", "DFWN"])
                     
                     if st.form_submit_button("Save New Test", type="primary"):
                         if not all([ua_du, ua_due, ua_loc.strip(), ua_class]):
@@ -446,7 +447,7 @@ with tab2:
                         val_int = safe_int(d.get("Flaw Intensity", 0))
                         ue_int = c5.number_input("Flaw Intensity (0-100%)", min_value=0, max_value=100, value=val_int, step=1)
                         
-                        class_opts = ["", "OK", "DFWO", "DFWR"]
+                        class_opts = ["", "OK", "DFWO", "DFWR", "DFWN"]
                         ue_class = c6.selectbox("Classification *", class_opts, index=class_opts.index(d.get("Classification")) if d.get("Classification") in class_opts else 0)
                         
                         st.markdown("---")
@@ -586,12 +587,17 @@ with tab3:
                 m_tp_h = t4_h.number_input("HH", min_value=0, max_value=23, step=1, value=tp_db_h, key="m_tph")
                 m_tp_m = t4_m.number_input("MM", min_value=0, max_value=59, step=1, value=tp_db_m, key="m_tpm")
 
-            st.markdown("**5. Dimensional Tolerances (Decimal mm)**")
-            c22, c23, c24, c25 = st.columns(4)
+            st.markdown("**5. Dimensional Tolerances & Status**")
+            c22, c23, c24, c25, c26 = st.columns(5)
             m_1mt = c22.number_input("1m Top (mm)", step=0.1, value=safe_float(d.get("1m Top Tolerance", 0)), format="%.2f")
             m_1ms = c23.number_input("1m Side (mm)", step=0.1, value=safe_float(d.get("1m Side Tolerance", 0)), format="%.2f")
             m_10cv = c24.number_input("10cm Vert (mm)", step=0.1, value=safe_float(d.get("10cm Vert Tolerance", 0)), format="%.2f")
             m_10cl = c25.number_input("10cm Lat (mm)", step=0.1, value=safe_float(d.get("10cm Lat Tolerance", 0)), format="%.2f")
+            
+            stat_opts = ["OK", "Failed"]
+            db_status = str(d.get("Weld Status", "OK"))
+            stat_idx = stat_opts.index(db_status) if db_status in stat_opts else 0
+            m_status = c26.selectbox("Weld Status", stat_opts, index=stat_idx)
 
             if st.form_submit_button("Update MMG Record", type="primary"):
                 m_ag = m_ag_oth.strip() if m_ag_sel == "OTHER" else m_ag_sel
@@ -619,10 +625,10 @@ with tab3:
                         m_ag.strip().upper(), m_sup.strip(), m_welder.strip(), m_weldno, dpm_str, 
                         int(m_rt), m_bf_str, m_bt_str, m_fg_str, int(m_mw), 
                         int(m_ph), float(m_1mt), float(m_1ms), float(m_10cv), float(m_10cl), 
-                        m_tp_str, rdso_mark, st.session_state["user"], timestamp
+                        m_tp_str, rdso_mark, m_status, st.session_state["user"], timestamp
                     ]
                     row_num = st.session_state['mod_weld_row']
-                    weld_sheet.update(f"A{row_num}:AC{row_num}", [updated_values])
+                    weld_sheet.update(f"A{row_num}:AD{row_num}", [updated_values])
                     st.success(f"✅ MMG Record updated! New RDSO Mark: {rdso_mark}")
                     st.session_state.pop('mod_weld_data', None)
 
