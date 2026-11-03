@@ -90,6 +90,15 @@ def parse_date(date_str):
         else: return datetime.date.fromisoformat(date_str)
     except ValueError: return None
 
+def robust_parse_date_series(series):
+    """Safely converts a series of text dates in various formats into datetime objects for filtering."""
+    parsed = pd.to_datetime(series, format="%d/%m/%Y", errors='coerce')
+    # Fallback to standard parser if format='%d/%m/%Y' fails for some rows
+    mask_nat = parsed.isna() & series.notna() & (series.astype(str).str.strip() != "")
+    if mask_nat.any():
+        parsed.loc[mask_nat] = pd.to_datetime(series[mask_nat], errors='coerce')
+    return parsed.dt.date
+
 def extract_km(loc_str):
     if not loc_str or pd.isna(loc_str): return -1
     match = re.search(r'(\d+)', str(loc_str))
@@ -133,7 +142,7 @@ def init_connection():
 try:
     weld_sheet, usfd_sheet, rail_logs_sheet, rail_defects_sheet = init_connection()
 except Exception as e:
-    st.error(f"Failed to connect to Google Sheets. Check if 'RailTestLogs' and 'RailDefects' tabs exist. Error: {e}")
+    st.error(f"Failed to connect to Google Sheets. Check if tabs exist. Error: {e}")
     st.stop()
 
 def get_weld_df(): return pd.DataFrame(weld_sheet.get_all_records())
@@ -303,7 +312,7 @@ with tab2:
     if df_weld.empty:
         st.info("No welds currently exist in the MMG database.")
     else:
-        df_weld["ParsedDate"] = pd.to_datetime(df_weld["Date of Welding"], format="%d/%m/%Y", errors='coerce').dt.date
+        df_weld["ParsedDate"] = robust_parse_date_series(df_weld["Date of Welding"])
         df_weld["KM_Value"] = df_weld["Location"].apply(extract_km)
         
         c_s1, c_s2, c_s3 = st.columns(3)
@@ -521,9 +530,8 @@ with tab3:
             st.info("No rail testing logs found.")
         else:
             logs_df["From_Km_Float"] = logs_df["From Km"].apply(safe_float)
-            logs_df["ParsedDate"] = pd.to_datetime(logs_df["Date of Testing"], format="%d/%m/%Y", errors='coerce')
+            logs_df["ParsedDate"] = robust_parse_date_series(logs_df["Date of Testing"])
 
-            # Jurisdiction and Km Range Synergy
             fc1, fc2 = st.columns(2)
             sel_jur = fc1.selectbox("Filter by Jurisdiction:", list(JE_OPTIONS.keys()), key="rail_rep_jur")
             
@@ -532,7 +540,6 @@ with tab3:
             
             km_range = fc2.slider("Filter Exact Km Range:", min_value=0.0, max_value=378.0, value=(float(min_default), float(max_default)), step=0.100)
 
-            # Filtering logic
             mask_jur = pd.Series([True] * len(logs_df))
             if sel_jur == "Unassigned / Invalid KM":
                 mask_jur = (logs_df["From_Km_Float"] < 0)
@@ -556,7 +563,6 @@ with tab3:
             
             st.dataframe(display_df, use_container_width=True, hide_index=True)
             
-            # Downloads
             col_d1, col_d2 = st.columns(2)
             file_pfx = sel_jur.split(" (")[0].replace("/", "_")
             
@@ -589,7 +595,8 @@ with tab3:
                 if f_default_min < 0: f_default_min, f_default_max = 0.0, 378.0
                 f_km_range = fc3.slider("Filter Exact Km Range", min_value=0.0, max_value=378.0, value=(float(f_default_min), float(f_default_max)), step=0.100, key="def_km_slider")
 
-                defects_df["ParsedDate"] = pd.to_datetime(defects_df["Date of Testing"], format="%d/%m/%Y", errors='coerce').dt.date
+                # Robust parsing of text dates from Google Sheets
+                defects_df["ParsedDate"] = robust_parse_date_series(defects_df["Date of Testing"])
                 defects_df["KM_Val"] = defects_df["Km"].apply(extract_km)
                 defects_df["KM_Float"] = defects_df["Km"].apply(safe_float)
                 
@@ -607,7 +614,7 @@ with tab3:
                 filtered_def_list = defects_df[mk_d & mk_j & mk_k].sort_values(by="ParsedDate", ascending=False)
                 
                 if filtered_def_list.empty:
-                    st.warning("No defects match your filter criteria.")
+                    st.warning("No defects match your filter criteria. Try expanding your date range or Km filter.")
                 else:
                     opts = {row["Defect ID"]: f"Km {row.get('Km','')} | {row.get('Defect location','')} | Last Tested: {row.get('Date of Testing','')}" for _, row in filtered_def_list.iterrows()}
                     sel_def_id = st.selectbox("Select Filtered Defect to Update:", options=[""] + list(opts.keys()), format_func=lambda x: "Select a defect..." if x=="" else opts[x])
