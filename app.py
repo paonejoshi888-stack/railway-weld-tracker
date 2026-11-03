@@ -91,12 +91,13 @@ def parse_date(date_str):
     except ValueError: return None
 
 def robust_parse_date_series(series):
-    """Safely converts a series of text dates in various formats into datetime objects for filtering."""
-    parsed = pd.to_datetime(series, format="%d/%m/%Y", errors='coerce')
-    # Fallback to standard parser if format='%d/%m/%Y' fails for some rows
-    mask_nat = parsed.isna() & series.notna() & (series.astype(str).str.strip() != "")
+    """Strictly parses DD/MM/YYYY text strings from Google Sheets."""
+    s_clean = series.astype(str).str.strip()
+    parsed = pd.to_datetime(s_clean, format="%d/%m/%Y", errors='coerce')
+    # Fallback for any standard ISO dates if present
+    mask_nat = parsed.isna() & (s_clean != "") & (s_clean != "nan")
     if mask_nat.any():
-        parsed.loc[mask_nat] = pd.to_datetime(series[mask_nat], errors='coerce')
+        parsed.loc[mask_nat] = pd.to_datetime(s_clean[mask_nat], errors='coerce')
     return parsed.dt.date
 
 def extract_km(loc_str):
@@ -588,14 +589,14 @@ with tab3:
             else:
                 st.markdown("#### 🔍 Filter Existing Defects")
                 fc1, fc2, fc3 = st.columns(3)
-                f_start = fc1.date_input("Filter From Date", value=datetime.date.today() - datetime.timedelta(days=180))
+                f_start = fc1.date_input("Filter From Date", value=datetime.date(2020, 1, 1)) # Set wide default date to catch old records
                 f_jur = fc2.selectbox("Filter Jurisdiction", list(JE_OPTIONS.keys()), key="def_filter_jur")
                 
                 f_default_min, f_default_max = JE_OPTIONS[f_jur]
                 if f_default_min < 0: f_default_min, f_default_max = 0.0, 378.0
                 f_km_range = fc3.slider("Filter Exact Km Range", min_value=0.0, max_value=378.0, value=(float(f_default_min), float(f_default_max)), step=0.100, key="def_km_slider")
 
-                # Robust parsing of text dates from Google Sheets
+                # Strictly parse DD/MM/YYYY text strings
                 defects_df["ParsedDate"] = robust_parse_date_series(defects_df["Date of Testing"])
                 defects_df["KM_Val"] = defects_df["Km"].apply(extract_km)
                 defects_df["KM_Float"] = defects_df["Km"].apply(safe_float)
