@@ -34,7 +34,6 @@ def check_password():
                 "JE_KKW": "pass123", "JE_SWV": "pass123", "SSE_KKW": "pass123",
                 "DEN_KKW": "pass123", "USFD_TEAM": "usfd123", "ADMIN": "admin123"
             }
-            
             if "users" in st.secrets:
                 users = dict(st.secrets["users"])
                 
@@ -60,26 +59,16 @@ st.title("🚆 Railway Weld Record Manager")
 MIN_DATE = datetime.date(1994, 1, 1)
 
 JE_OPTIONS = {
-    "All Division (Complete)": (-1, 9999),
-    "DEN/CHI (Km 0-154)": (0, 154),
-    "SSE/MNI (Km 0-79)": (0, 79),
-    "SSE/CHI (Km 80-154)": (80, 154),
-    "JE/KOL (Km 0-23)": (0, 23),
-    "JE/VEER (Km 24-46)": (24, 46),
-    "JE/KFD (Km 47-79)": (47, 79),
-    "JE/KHED (Km 80-119)": (80, 119),
-    "JE/CHI (Km 120-154)": (120, 154),
-    "DEN/KKW (Km 226-378)": (226, 378),
-    "SSE/Sec/RN (Km 191-226)": (191, 226),
-    "SSE/P/RN (Km 154-226)": (154, 226),
-    "AEN/RN (Km 154-226)": (154, 226),
-    "SSE/VID (Km 226-299)": (226, 299),
-    "SSE/KKW (Km 299-371)": (299, 371),
-    "JE/SGR (Km 154-191)": (154, 191),
-    "JE/ADVI (Km 226-258)": (226, 258),
-    "JE/VBW (Km 258-299)": (258, 299),
-    "JE/KKW (Km 299-337)": (299, 337),
-    "JE/SWV (Km 337-371)": (337, 371),
+    "All Division (Complete)": (-1, 9999), "DEN/CHI (Km 0-154)": (0, 154),
+    "SSE/MNI (Km 0-79)": (0, 79), "SSE/CHI (Km 80-154)": (80, 154),
+    "JE/KOL (Km 0-23)": (0, 23), "JE/VEER (Km 24-46)": (24, 46),
+    "JE/KFD (Km 47-79)": (47, 79), "JE/KHED (Km 80-119)": (80, 119),
+    "JE/CHI (Km 120-154)": (120, 154), "DEN/KKW (Km 226-378)": (226, 378),
+    "SSE/Sec/RN (Km 191-226)": (191, 226), "SSE/P/RN (Km 154-226)": (154, 226),
+    "AEN/RN (Km 154-226)": (154, 226), "SSE/VID (Km 226-299)": (226, 299),
+    "SSE/KKW (Km 299-371)": (299, 371), "JE/SGR (Km 154-191)": (154, 191),
+    "JE/ADVI (Km 226-258)": (226, 258), "JE/VBW (Km 258-299)": (258, 299),
+    "JE/KKW (Km 299-337)": (299, 337), "JE/SWV (Km 337-371)": (337, 371),
     "Unassigned / Invalid KM": (-1, -1)
 }
 
@@ -115,8 +104,7 @@ def safe_float(val):
     except: return 0.0
 
 def parse_time_val(val):
-    if val is None or pd.isna(val) or str(val).strip() == "":
-        return 0, 0
+    if val is None or pd.isna(val) or str(val).strip() == "": return 0, 0
     val_str = str(val).strip()
     if ":" in val_str:
         parts = val_str.split(":")
@@ -126,8 +114,7 @@ def parse_time_val(val):
         try:
             v = int(float(val_str))
             return v // 100, v % 100
-        except:
-            return 0, 0
+        except: return 0, 0
 
 @st.cache_resource
 def init_connection():
@@ -141,26 +128,30 @@ def init_connection():
         creds = ServiceAccountCredentials.from_json_keyfile_dict(secrets_dict, scope)
     client = gspread.authorize(creds)
     wb = client.open("Railway Weld Database")
-    return wb.worksheet("WeldDetails"), wb.worksheet("USFDDetails")
+    return wb.worksheet("WeldDetails"), wb.worksheet("USFDDetails"), wb.worksheet("RailTestLogs"), wb.worksheet("RailDefects")
 
 try:
-    weld_sheet, usfd_sheet = init_connection()
+    weld_sheet, usfd_sheet, rail_logs_sheet, rail_defects_sheet = init_connection()
 except Exception as e:
-    st.error(f"Failed to connect to Google Sheets. Error: {e}")
+    st.error(f"Failed to connect to Google Sheets. Check if 'RailTestLogs' and 'RailDefects' tabs exist. Error: {e}")
     st.stop()
 
-def get_weld_df():
-    return pd.DataFrame(weld_sheet.get_all_records())
-
-def get_usfd_df():
-    return pd.DataFrame(usfd_sheet.get_all_records())
+def get_weld_df(): return pd.DataFrame(weld_sheet.get_all_records())
+def get_usfd_df(): return pd.DataFrame(usfd_sheet.get_all_records())
+def get_rail_logs_df(): 
+    try: return pd.DataFrame(rail_logs_sheet.get_all_records())
+    except: return pd.DataFrame()
+def get_rail_defects_df(): 
+    try: return pd.DataFrame(rail_defects_sheet.get_all_records())
+    except: return pd.DataFrame()
 
 # =========================================================
 # TABS SETUP
 # =========================================================
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "➕ Add Weld (MMG)", 
-    "🩺 USFD Testing", 
+    "🩺 Weld USFD", 
+    "🛤️ Rail USFD",
     "✏️ Modify Weld", 
     "🗑️ Delete", 
     "📊 View & Reports"
@@ -252,9 +243,7 @@ with tab1:
         add_10cl = c25.number_input("10cm Lat (mm)", step=0.1, value=0.0, format="%.2f")
         add_status = c26.selectbox("Weld Status", ["OK", "Failed"], index=0)
 
-        submitted_weld = st.form_submit_button("Save Weld Record & Generate RDSO", type="primary")
-        
-        if submitted_weld:
+        if st.form_submit_button("Save Weld Record & Generate RDSO", type="primary"):
             add_ag = add_ag_oth.strip() if add_ag_sel == "OTHER" else add_ag_sel
             add_sup = add_sup_oth.strip() if add_sup_sel == "Other" else add_sup_sel
             add_weldno = f"{add_weldno_pfx}{add_weldno_num}"
@@ -298,10 +287,10 @@ with tab1:
                         st.success(f"✅ Record '{assembled_id}' added! Auto-Generated RDSO Marking: **{rdso_mark}**")
 
 # ---------------------------------------------------------
-# TAB 2: USFD TESTING & AUDIT TRAIL
+# TAB 2: WELD USFD TESTING
 # ---------------------------------------------------------
 with tab2:
-    st.subheader("USFD Testing Data & Audit History")
+    st.subheader("Weld USFD Testing Data & Audit History")
     
     st.markdown("### 🔍 Search & Select Weld")
     df_weld = get_weld_df()
@@ -325,22 +314,12 @@ with tab2:
         
         mask_date = (df_weld["ParsedDate"] >= start_d) & (df_weld["ParsedDate"] <= end_d)
         
-        if sel_jur == "All Division (Complete)":
-            mask_jur = pd.Series([True] * len(df_weld))
-        elif sel_jur == "Unassigned / Invalid KM":
-            mask_jur = (df_weld["KM_Value"] == -1)
-        else:
-            mask_jur = (df_weld["KM_Value"] >= min_k) & (df_weld["KM_Value"] <= max_k)
+        if sel_jur == "All Division (Complete)": mask_jur = pd.Series([True] * len(df_weld))
+        elif sel_jur == "Unassigned / Invalid KM": mask_jur = (df_weld["KM_Value"] == -1)
+        else: mask_jur = (df_weld["KM_Value"] >= min_k) & (df_weld["KM_Value"] <= max_k)
             
-        if sel_sec != "All Sections":
-            mask_sec = (df_weld["Section"] == sel_sec)
-        else:
-            mask_sec = pd.Series([True] * len(df_weld))
-            
-        if sel_loc.strip():
-            mask_loc = df_weld["Location"].astype(str).str.contains(sel_loc.strip(), case=False, na=False)
-        else:
-            mask_loc = pd.Series([True] * len(df_weld))
+        mask_sec = (df_weld["Section"] == sel_sec) if sel_sec != "All Sections" else pd.Series([True] * len(df_weld))
+        mask_loc = df_weld["Location"].astype(str).str.contains(sel_loc.strip(), case=False, na=False) if sel_loc.strip() else pd.Series([True] * len(df_weld))
             
         filtered_weld_df = df_weld[mask_date & mask_jur & mask_sec & mask_loc]
         
@@ -422,8 +401,7 @@ with tab2:
                                 st.success("✅ New test logged!")
             
             elif action == "Edit a Past Test":
-                if history_df.empty:
-                    st.warning("No past tests available.")
+                if history_df.empty: st.warning("No past tests available.")
                 else:
                     opts = {idx: f"Test Date: {row['Date of USFD testing']} | Class: {row.get('Classification','')}" for idx, row in history_df.iterrows()}
                     sel_idx = st.selectbox("Select Test to Correct:", options=list(opts.keys()), format_func=lambda x: opts[x])
@@ -450,8 +428,7 @@ with tab2:
                         class_opts = ["", "OK", "DFWO", "DFWR", "DFWN"]
                         ue_class = c6.selectbox("Classification *", class_opts, index=class_opts.index(d.get("Classification")) if d.get("Classification") in class_opts else 0)
                         
-                        st.markdown("---")
-                        ue_reason = st.text_input("Reason for Modification (Required for Audit Trail) *", placeholder="e.g. Correcting typo")
+                        ue_reason = st.text_input("Reason for Modification (Required) *", placeholder="e.g. Correcting typo")
                         
                         if st.form_submit_button("Update & Log Audit", type="primary"):
                             if not all([ue_du, ue_due, ue_loc.strip(), ue_class, ue_reason.strip()]):
@@ -463,27 +440,163 @@ with tab2:
                                     ue_loc.strip(), ue_flaw, ue_probe, int(ue_int), ue_class,
                                     st.session_state["user"], timestamp, ue_reason.strip()
                                 ]
-                                row_num = int(sel_idx) + 2
-                                usfd_sheet.update(f"A{row_num}:K{row_num}", [row_data])
+                                usfd_sheet.update(f"A{int(sel_idx) + 2}:K{int(sel_idx) + 2}", [row_data])
                                 st.success("✅ Historical record updated and audit trail logged!")
 
             elif action == "Delete a Past Test":
-                if history_df.empty:
-                    st.warning("No past tests available to delete.")
+                if history_df.empty: st.warning("No past tests available to delete.")
                 else:
                     del_opts = {idx: f"Test Date: {row['Date of USFD testing']} | Class: {row.get('Classification','')}" for idx, row in history_df.iterrows()}
                     sel_del_idx = st.selectbox("Select Test to Permanently Delete:", options=list(del_opts.keys()), format_func=lambda x: del_opts[x])
-                    
-                    st.warning("⚠️ Warning: This will permanently delete only this specific test record.")
                     if st.button("Delete Selected Test", type="primary"):
-                        row_num = int(sel_del_idx) + 2
-                        usfd_sheet.delete_rows(row_num)
+                        usfd_sheet.delete_rows(int(sel_del_idx) + 2)
                         st.success("🗑 Specific test record successfully deleted!")
 
 # ---------------------------------------------------------
-# TAB 3: MODIFY WELD (MMG)
+# TAB 3: RAIL USFD TESTING (NEW)
 # ---------------------------------------------------------
 with tab3:
+    st.subheader("🛤️ Rail USFD Testing & Defect Tracking")
+    
+    rail_action = st.radio("Choose Action:", [
+        "📊 100m Block Testing Report",
+        "📝 Log Section Testing (Update Blocks)", 
+        "⚠️ Log Specific Rail Defect", 
+        "📋 View Rail Defect Register"
+    ], horizontal=True)
+
+    if rail_action == "📝 Log Section Testing (Update Blocks)":
+        with st.form("log_rail_test"):
+            st.markdown("Log a completed section test. This will auto-update the 100m block report.")
+            c1, c2 = st.columns(2)
+            rt_date = c1.date_input("Date of Testing *", format="DD/MM/YYYY")
+            rt_due = c2.date_input("Due Date of Testing *", format="DD/MM/YYYY")
+            
+            c3, c4 = st.columns(2)
+            rt_from = c3.number_input("From Km (e.g., 10.200) *", min_value=0.0, step=0.100, format="%.3f")
+            rt_to = c4.number_input("To Km (e.g., 15.500) *", min_value=0.0, step=0.100, format="%.3f")
+            
+            c5, c6 = st.columns(2)
+            rt_by = c5.selectbox("Done By *", ["", "DEPT", "CONT"])
+            rt_rem = c6.text_input("Remarks")
+            
+            if st.form_submit_button("Save Testing Log", type="primary"):
+                if rt_from >= rt_to:
+                    st.error("'From Km' must be strictly less than 'To Km'.")
+                elif not rt_by:
+                    st.error("Please specify 'Done By'.")
+                else:
+                    log_id = f"RTLOG-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
+                    ts = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+                    row = [
+                        log_id, rt_date.strftime("%d/%m/%Y"), float(rt_from), float(rt_to), 
+                        rt_due.strftime("%d/%m/%Y"), rt_by, rt_rem.strip(), st.session_state["user"], ts
+                    ]
+                    rail_logs_sheet.append_row(row)
+                    st.success(f"✅ Testing logged for Km {rt_from} to {rt_to}! Block report is now updated.")
+
+    elif rail_action == "📊 100m Block Testing Report":
+        st.markdown("### Rail Section Testing Status (0.800 to 378.100 Km)")
+        logs_df = get_rail_logs_df()
+        
+        if st.button("Generate 100m Block Report", type="primary"):
+            with st.spinner("Calculating 3,770 blocks..."):
+                if not logs_df.empty:
+                    logs_df["ParsedDate"] = pd.to_datetime(logs_df["Date of Testing"], format="%d/%m/%Y", errors='coerce')
+                
+                # Dynamically generate 3773 blocks of 100 meters
+                starts = [round(0.8 + i * 0.1, 3) for i in range(3773)]
+                records = []
+                
+                for i, b_start in enumerate(starts):
+                    b_end = round(b_start + 0.1, 3)
+                    b_mid = round(b_start + 0.05, 3)
+                    
+                    match = None
+                    if not logs_df.empty:
+                        covering = logs_df[(logs_df['From Km'] <= b_mid) & (logs_df['To Km'] >= b_mid)]
+                        if not covering.empty:
+                            match = covering.sort_values('ParsedDate', ascending=False).iloc[0]
+                    
+                    records.append({
+                        'Sr no': i + 1,
+                        'From Km': f"{b_start:.3f}",
+                        'To Km': f"{b_end:.3f}",
+                        'Last USFD testing': match['Date of Testing'] if match is not None else "Pending",
+                        'Due USFD testing': match['Due Date'] if match is not None else "-",
+                        'Done by (DEPT/CONT)': match['Done By'] if match is not None else "-",
+                        'REMARKS': match['Remarks'] if match is not None else "-"
+                    })
+                
+                report_df = pd.DataFrame(records)
+                st.dataframe(report_df, use_container_width=True)
+                
+                csv = report_df.to_csv(index=False).encode('utf-8')
+                st.download_button("📥 Download Block Report (CSV)", csv, "100m_Block_Report.csv", "text/csv")
+
+    elif rail_action == "⚠️ Log Specific Rail Defect":
+        with st.form("log_rail_defect", clear_on_submit=True):
+            st.markdown("Enter details exactly as per the USFD Rail Defect Register format:")
+            c1, c2, c3 = st.columns(3)
+            rd_date = c1.date_input("Date of Testing *", format="DD/MM/YYYY")
+            rd_km = c2.text_input("Km (e.g. 81/0-1) *")
+            rd_rm = c3.text_input("Rolling mark")
+            
+            c4, c5, c6 = st.columns(3)
+            rd_rail = c4.text_input("Rail/Weld No. & LH/RH (e.g. LH-6/RAIL)")
+            rd_loc = c5.text_input("Defect location (e.g. HEAD)")
+            rd_flaw = c6.text_input("FLAW Type")
+            
+            c7, c8 = st.columns(2)
+            rd_probe = c7.text_input("Probe")
+            rd_echo = c8.text_input("Nature of Echo")
+            
+            st.markdown("**Previous vs Present Readings**")
+            p1, p2 = st.columns(2)
+            rd_amp_prev = p1.text_input("Amplitude (Previous)")
+            rd_amp_pres = p2.text_input("Amplitude (Present)")
+            
+            p3, p4 = st.columns(2)
+            rd_et_prev = p3.text_input("Echo Travel (Previous)")
+            rd_et_pres = p4.text_input("Echo Travel (Present)")
+            
+            p5, p6 = st.columns(2)
+            class_opts = ["", "OBS", "IMR", "OBSW", "IMRW", "DFWO", "DFWR", "DFWN", "OK"]
+            rd_class_prev = p5.selectbox("Classification (Previous)", class_opts)
+            rd_class_pres = p6.selectbox("Classification (Present)", class_opts)
+            
+            rd_remark = st.text_input("Remark")
+            
+            if st.form_submit_button("Save Defect Record", type="primary"):
+                if not rd_km.strip():
+                    st.error("Km field is required.")
+                else:
+                    def_id = f"DEF-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
+                    ts = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+                    row = [
+                        def_id, rd_date.strftime("%d/%m/%Y"), rd_km.strip(), rd_rm.strip(), 
+                        rd_rail.strip(), rd_loc.strip(), rd_flaw.strip(), rd_probe.strip(), 
+                        rd_echo.strip(), rd_amp_prev.strip(), rd_amp_pres.strip(), 
+                        rd_et_prev.strip(), rd_et_pres.strip(), rd_class_prev, rd_class_pres, 
+                        rd_remark.strip(), st.session_state["user"], ts
+                    ]
+                    rail_defects_sheet.append_row(row)
+                    st.success("✅ Defect logged successfully into the Rail Defect Database!")
+
+    elif rail_action == "📋 View Rail Defect Register":
+        st.markdown("### 📋 Rail Defect Database")
+        defects_df = get_rail_defects_df()
+        if defects_df.empty:
+            st.info("No rail defects logged yet.")
+        else:
+            st.dataframe(defects_df, use_container_width=True)
+            csv = defects_df.to_csv(index=False).encode('utf-8')
+            st.download_button("📥 Download Defect Register (CSV)", csv, "Rail_Defects.csv", "text/csv")
+
+# ---------------------------------------------------------
+# TAB 4: MODIFY WELD (MMG)
+# ---------------------------------------------------------
+with tab4:
     st.subheader("Modify Existing MMG Weld Record")
     mod_search_id = st.text_input("Enter AT weld ID to edit MMG details:")
     
@@ -633,20 +746,18 @@ with tab3:
                     st.session_state.pop('mod_weld_data', None)
 
 # ---------------------------------------------------------
-# TAB 4: DELETE RECORD (Cascading Delete)
+# TAB 5: DELETE RECORD
 # ---------------------------------------------------------
-with tab4:
+with tab5:
     st.subheader("Delete a Record Completely")
     st.warning("⚠️ Warning: This will permanently delete the ID from the MMG Database AND all its historical tests in the USFD Database.")
     del_search_id = st.text_input("Enter AT weld ID to delete:")
     
     if st.button("Delete Record", type="primary"):
-        if not del_search_id.strip():
-            st.error("Please enter an AT weld ID.")
+        if not del_search_id.strip(): st.error("Please enter an AT weld ID.")
         else:
             del_clean = del_search_id.strip().upper()
-            weld_df = get_weld_df()
-            usfd_df = get_usfd_df()
+            weld_df, usfd_df = get_weld_df(), get_usfd_df()
             deleted_something = False
             
             if not usfd_df.empty and "AT weld ID" in usfd_df.columns and del_clean in usfd_df["AT weld ID"].astype(str).values:
@@ -666,31 +777,25 @@ with tab4:
                 st.error(f"Record '{del_clean}' not found in any database.")
 
 # ---------------------------------------------------------
-# TAB 5: VIEW DATABASES & DYNAMIC REPORTS
+# TAB 6: VIEW DATABASES & DYNAMIC REPORTS
 # ---------------------------------------------------------
-with tab5:
+with tab6:
     st.subheader("Live Databases & Jurisdiction Reports")
     
-    weld_df = get_weld_df()
-    usfd_df = get_usfd_df()
+    weld_df, usfd_df = get_weld_df(), get_usfd_df()
     
     if not weld_df.empty:
         weld_df["KM_Value"] = weld_df["Location"].apply(extract_km)
         
         st.markdown("### 📍 Filter by Engineering Jurisdiction")
-        
         selected_jurisdiction = st.selectbox("Select Jurisdiction:", list(JE_OPTIONS.keys()))
         min_km, max_km = JE_OPTIONS[selected_jurisdiction]
         
-        if selected_jurisdiction == "All Division (Complete)":
-            filtered_weld_df = weld_df
-        elif selected_jurisdiction == "Unassigned / Invalid KM":
-            filtered_weld_df = weld_df[weld_df["KM_Value"] == -1]
-        else:
-            filtered_weld_df = weld_df[(weld_df["KM_Value"] >= min_km) & (weld_df["KM_Value"] <= max_km)]
+        if selected_jurisdiction == "All Division (Complete)": filtered_weld_df = weld_df
+        elif selected_jurisdiction == "Unassigned / Invalid KM": filtered_weld_df = weld_df[weld_df["KM_Value"] == -1]
+        else: filtered_weld_df = weld_df[(weld_df["KM_Value"] >= min_km) & (weld_df["KM_Value"] <= max_km)]
             
         display_weld_df = filtered_weld_df.drop(columns=["KM_Value"])
-        
         valid_ids = display_weld_df["AT weld ID"].tolist()
         display_usfd_df = usfd_df[usfd_df["AT weld ID"].isin(valid_ids)] if not usfd_df.empty else pd.DataFrame()
             
@@ -698,10 +803,8 @@ with tab5:
         st.dataframe(display_weld_df, use_container_width=True)
         
         st.markdown(f"### 2. USFD Testing Database History ({selected_jurisdiction})")
-        if display_usfd_df.empty: 
-            st.info("No USFD test records found for this jurisdiction selection.")
-        else: 
-            st.dataframe(display_usfd_df, use_container_width=True)
+        if display_usfd_df.empty: st.info("No USFD test records found for this jurisdiction selection.")
+        else: st.dataframe(display_usfd_df, use_container_width=True)
             
         st.markdown("---")
         st.subheader(f"📥 Download Reports for: {selected_jurisdiction}")
@@ -713,13 +816,10 @@ with tab5:
             buffer = io.BytesIO()
             with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
                 display_weld_df.to_excel(writer, index=False, sheet_name='Weld_Details')
-                if not display_usfd_df.empty:
-                    display_usfd_df.to_excel(writer, index=False, sheet_name='USFD_History')
-            
+                if not display_usfd_df.empty: display_usfd_df.to_excel(writer, index=False, sheet_name='USFD_History')
             col_dl1.download_button(
                 label=f"📊 Download Excel Report ({selected_jurisdiction})",
-                data=buffer.getvalue(),
-                file_name=f"Weld_Report_{file_prefix}_{datetime.date.today()}.xlsx",
+                data=buffer.getvalue(), file_name=f"Weld_Report_{file_prefix}_{datetime.date.today()}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
         except Exception:
@@ -728,8 +828,7 @@ with tab5:
         col_dl2.download_button(
             label=f"📄 Download Weld CSV ({selected_jurisdiction})",
             data=display_weld_df.to_csv(index=False).encode('utf-8'),
-            file_name=f"Weld_Details_{file_prefix}_{datetime.date.today()}.csv",
-            mime="text/csv",
+            file_name=f"Weld_Details_{file_prefix}_{datetime.date.today()}.csv", mime="text/csv",
         )
     else:
         st.info("The database is currently empty. Add records using the 'Add Weld' tab.")
