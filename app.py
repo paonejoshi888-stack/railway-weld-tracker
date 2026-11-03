@@ -461,7 +461,7 @@ with tab3:
     rail_action = st.radio("Choose Action:", [
         "📊 Section Testing Report",
         "📝 Log Section Testing", 
-        "⚠️ Log Specific Rail Defect", 
+        "⚠️ Log Rail Defect", 
         "📋 View Rail Defect Register"
     ], horizontal=True)
 
@@ -520,40 +520,80 @@ with tab3:
             csv = display_df.to_csv(index=False).encode('utf-8')
             st.download_button("📥 Download Testing Report (CSV)", csv, "Rail_Testing_Report.csv", "text/csv")
 
-    elif rail_action == "⚠️ Log Specific Rail Defect":
+    elif rail_action == "⚠️ Log Rail Defect":
+        st.markdown("### Log a Specific Rail Defect")
+        defect_mode = st.radio("Defect Entry Mode:", ["🆕 Log Brand New Defect", "🔄 Re-Test Existing Defect"], horizontal=True)
+        
+        d = {}
+        if defect_mode == "🔄 Re-Test Existing Defect":
+            defects_df = get_rail_defects_df()
+            if defects_df.empty:
+                st.warning("No existing defects found in the database to re-test.")
+            else:
+                defects_df["ParsedDate"] = pd.to_datetime(defects_df["Date of Testing"], format="%d/%m/%Y", errors='coerce')
+                defects_df = defects_df.sort_values(by="ParsedDate", ascending=False)
+                
+                opts = {row["Defect ID"]: f"Km {row['Km']} | {row['Defect location']} | Last Tested: {row['Date of Testing']}" for _, row in defects_df.iterrows()}
+                sel_def_id = st.selectbox("Select Existing Defect to Update:", options=[""] + list(opts.keys()), format_func=lambda x: "Select a defect..." if x=="" else opts[x])
+                
+                if sel_def_id:
+                    d = defects_df[defects_df["Defect ID"] == sel_def_id].iloc[0].to_dict()
+                    st.info(f"Loaded Defect ID: {sel_def_id}. Old 'Present' values will become 'Previous'.")
+
         with st.form("log_rail_defect", clear_on_submit=True):
-            st.markdown("Enter details exactly as per the USFD Rail Defect Register format:")
+            st.markdown("Enter details as per the USFD Rail Defect Register format:")
             c1, c2, c3 = st.columns(3)
             rd_date = c1.date_input("Date of Testing *", format="DD/MM/YYYY")
-            rd_km = c2.text_input("Km (e.g. 81/0-1) *")
-            rd_rm = c3.text_input("Rolling mark")
+            rd_km = c2.text_input("Km (e.g. 81/0-1) *", value=str(d.get("Km", "")))
+            rd_rm = c3.text_input("Rolling mark", value=str(d.get("Rolling mark", "")))
             
             c4, c5, c6 = st.columns(3)
-            rd_rail = c4.text_input("Rail/Weld No. & LH/RH (e.g. LH-6/RAIL)")
-            rd_loc = c5.text_input("Defect location (e.g. HEAD)")
-            rd_flaw = c6.text_input("FLAW Type")
+            rd_rail = c4.text_input("Rail/Weld No. & LH/RH (e.g. LH-6/RAIL)", value=str(d.get("Rail/Weld No. & LH/RH", "")))
+            
+            loc_opts = ["", "HEAD", "WEB", "FOOT", "WELD"]
+            db_loc = str(d.get("Defect location", ""))
+            loc_idx = loc_opts.index(db_loc) if db_loc in loc_opts else 0
+            rd_loc = c5.selectbox("Defect location", loc_opts, index=loc_idx)
+            
+            rd_flaw = c6.text_input("FLAW Type", value=str(d.get("FLAW Type", "")))
             
             c7, c8 = st.columns(2)
-            rd_probe = c7.text_input("Probe")
-            rd_echo = c8.text_input("Nature of Echo")
+            probe_opts = ["", "0deg", "45deg", "70deg", "72deg"]
+            db_probe = str(d.get("Probe", ""))
+            probe_idx = probe_opts.index(db_probe) if db_probe in probe_opts else 0
+            rd_probe = c7.selectbox("Probe", probe_opts, index=probe_idx)
+            
+            echo_opts = ["", "MOVING", "FIXED", "SHIFTING"]
+            db_echo = str(d.get("Nature of Echo", ""))
+            echo_idx = echo_opts.index(db_echo) if db_echo in echo_opts else 0
+            rd_echo = c8.selectbox("Nature of Echo", echo_opts, index=echo_idx)
             
             st.markdown("**Previous vs Present Readings**")
             p1, p2 = st.columns(2)
-            rd_amp_prev = p1.text_input("Amplitude (Previous)")
+            
+            # Smart logic: For Re-Tests, the DB's "Present" becomes the form's "Previous".
+            prev_amp = str(d.get("Amplitude Present", "")) if defect_mode == "🔄 Re-Test Existing Defect" else str(d.get("Amplitude Previous", ""))
+            rd_amp_prev = p1.text_input("Amplitude (Previous)", value=prev_amp)
             rd_amp_pres = p2.text_input("Amplitude (Present)")
             
             p3, p4 = st.columns(2)
-            rd_et_prev = p3.text_input("Echo Travel (Previous)")
+            prev_et = str(d.get("Echo Travel Present", "")) if defect_mode == "🔄 Re-Test Existing Defect" else str(d.get("Echo Travel Previous", ""))
+            rd_et_prev = p3.text_input("Echo Travel (Previous)", value=prev_et)
             rd_et_pres = p4.text_input("Echo Travel (Present)")
             
             p5, p6 = st.columns(2)
             class_opts = ["", "OBS", "IMR", "OBSW", "IMRW", "DFWO", "DFWR", "DFWN", "OK"]
-            rd_class_prev = p5.selectbox("Classification (Previous)", class_opts)
+            
+            db_class_prev = str(d.get("Classification Present", "")) if defect_mode == "🔄 Re-Test Existing Defect" else str(d.get("Classification Previous", ""))
+            class_prev_idx = class_opts.index(db_class_prev) if db_class_prev in class_opts else 0
+            rd_class_prev = p5.selectbox("Classification (Previous)", class_opts, index=class_prev_idx)
+            
             rd_class_pres = p6.selectbox("Classification (Present)", class_opts)
             
             rd_remark = st.text_input("Remark")
             
-            if st.form_submit_button("Save Defect Record", type="primary"):
+            submit_label = "Save as New Defect Test" if defect_mode == "🔄 Re-Test Existing Defect" else "Save Defect Record"
+            if st.form_submit_button(submit_label, type="primary"):
                 if not rd_km.strip():
                     st.error("Km field is required.")
                 else:
@@ -561,8 +601,8 @@ with tab3:
                     ts = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
                     row = [
                         def_id, rd_date.strftime("%d/%m/%Y"), rd_km.strip(), rd_rm.strip(), 
-                        rd_rail.strip(), rd_loc.strip(), rd_flaw.strip(), rd_probe.strip(), 
-                        rd_echo.strip(), rd_amp_prev.strip(), rd_amp_pres.strip(), 
+                        rd_rail.strip(), rd_loc, rd_flaw.strip(), rd_probe, 
+                        rd_echo, rd_amp_prev.strip(), rd_amp_pres.strip(), 
                         rd_et_prev.strip(), rd_et_pres.strip(), rd_class_prev, rd_class_pres, 
                         rd_remark.strip(), st.session_state["user"], ts
                     ]
