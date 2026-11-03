@@ -139,10 +139,15 @@ except Exception as e:
 def get_weld_df(): return pd.DataFrame(weld_sheet.get_all_records())
 def get_usfd_df(): return pd.DataFrame(usfd_sheet.get_all_records())
 def get_rail_logs_df(): 
-    try: return pd.DataFrame(rail_logs_sheet.get_all_records())
+    try: 
+        data = rail_logs_sheet.get_all_records()
+        return pd.DataFrame(data) if data else pd.DataFrame()
     except: return pd.DataFrame()
+
 def get_rail_defects_df(): 
-    try: return pd.DataFrame(rail_defects_sheet.get_all_records())
+    try: 
+        data = rail_defects_sheet.get_all_records()
+        return pd.DataFrame(data) if data else pd.DataFrame()
     except: return pd.DataFrame()
 
 # =========================================================
@@ -453,7 +458,7 @@ with tab2:
                         st.success("🗑 Specific test record successfully deleted!")
 
 # ---------------------------------------------------------
-# TAB 3: RAIL USFD TESTING (NEW)
+# TAB 3: RAIL USFD TESTING (UPDATED)
 # ---------------------------------------------------------
 with tab3:
     st.subheader("🛤️ Rail USFD Testing & Defect Tracking")
@@ -467,7 +472,7 @@ with tab3:
 
     if rail_action == "📝 Log Section Testing":
         with st.form("log_rail_test", clear_on_submit=True):
-            st.markdown("Log a completed section test. This will save exactly as entered (e.g. 10.000 to 13.000) for a crisp overview.")
+            st.markdown("Log completed section testing. Specify if done by Department or Contractor.")
             c1, c2 = st.columns(2)
             rt_date = c1.date_input("Date of Testing *", format="DD/MM/YYYY")
             rt_due = c2.date_input("Due Date of Testing *", format="DD/MM/YYYY")
@@ -477,48 +482,84 @@ with tab3:
             rt_to = c4.number_input("To Km (e.g., 13.000) *", min_value=0.0, step=0.100, format="%.3f")
             
             c5, c6 = st.columns(2)
-            rt_by = c5.selectbox("Done By *", ["", "DEPT", "CONT"])
-            rt_rem = c6.text_input("Remarks")
+            rt_by_type = c5.selectbox("Done By (DEPT/CONT) *", ["", "DEPT", "CONT"])
+            
+            done_by_str = ""
+            if rt_by_type == "DEPT":
+                dept_op = c6.selectbox("Designation/Team *", ["", "SSE/USFD/MNI", "SSE/USFD/CHI", "JE/USFD/RN", "SSE/USFD/KKW"])
+                done_by_str = dept_op
+            elif rt_by_type == "CONT":
+                c_ag, c_op = c6.columns(2)
+                cont_agency = c_ag.text_input("Agency Name *")
+                cont_operator = c_op.text_input("Operator Name *")
+                done_by_str = f"CONT: {cont_agency.strip()} ({cont_operator.strip()})"
+            else:
+                c6.text("")
+
+            rt_rem = st.text_input("Remarks")
             
             if st.form_submit_button("Save Testing Log", type="primary"):
                 if rt_from >= rt_to:
                     st.error("'From Km' must be strictly less than 'To Km'.")
-                elif not rt_by:
-                    st.error("Please specify 'Done By'.")
+                elif not rt_by_type or not done_by_str:
+                    st.error("Please fill all required testing ownership fields.")
                 else:
                     log_id = f"RTLOG-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
                     ts = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
                     row = [
                         log_id, rt_date.strftime("%d/%m/%Y"), float(rt_from), float(rt_to), 
-                        rt_due.strftime("%d/%m/%Y"), rt_by, rt_rem.strip(), st.session_state["user"], ts
+                        rt_due.strftime("%d/%m/%Y"), done_by_str, rt_rem.strip(), st.session_state["user"], ts
                     ]
                     rail_logs_sheet.append_row(row)
                     st.success(f"✅ Testing logged for Km {rt_from:.3f} to {rt_to:.3f}!")
 
     elif rail_action == "📊 Section Testing Report":
-        st.markdown("### 🛤️ Rail Section Testing History")
+        st.markdown("### 🛤️ Rail Section Testing History & Jurisdiction Reports")
         logs_df = get_rail_logs_df()
         
-        if logs_df.empty:
-            st.info("No rail testing logs found. Add a log using the 'Log Section Testing' option.")
+        if logs_df.empty or "From Km" not in logs_df.columns:
+            st.info("No rail testing logs found.")
         else:
-            logs_df = logs_df.sort_values(by=["From Km", "Date of Testing"], ascending=[True, False])
+            logs_df["From_Km_Float"] = logs_df["From Km"].apply(safe_float)
+            logs_df["ParsedDate"] = pd.to_datetime(logs_df["Date of Testing"], format="%d/%m/%Y", errors='coerce')
+
+            sel_jur = st.selectbox("Filter by Jurisdiction for Report:", list(JE_OPTIONS.keys()), key="rail_rep_jur")
+            min_k, max_k = JE_OPTIONS[sel_jur]
+            
+            if sel_jur == "All Division (Complete)":
+                filtered_logs = logs_df
+            elif sel_jur == "Unassigned / Invalid KM":
+                filtered_logs = logs_df[logs_df["From_Km_Float"] < 0]
+            else:
+                filtered_logs = logs_df[(logs_df["From_Km_Float"] >= min_k) & (logs_df["From_Km_Float"] <= max_k)]
+
+            filtered_logs = filtered_logs.sort_values(by=["From_Km_Float", "ParsedDate"], ascending=[True, False])
             
             display_df = pd.DataFrame({
-                "From Km": logs_df["From Km"].apply(lambda x: f"{float(x):.3f}"),
-                "To Km": logs_df["To Km"].apply(lambda x: f"{float(x):.3f}"),
-                "Last USFD testing": logs_df["Date of Testing"],
-                "Due USFD testing": logs_df["Due Date"],
-                "Done by (DEPT/CONT)": logs_df["Done By"],
-                "REMARKS": logs_df["Remarks"]
+                "From Km": filtered_logs["From Km"].apply(lambda x: f"{float(x):.3f}" if str(x).strip()!="" else ""),
+                "To Km": filtered_logs["To Km"].apply(lambda x: f"{float(x):.3f}" if str(x).strip()!="" else ""),
+                "Last USFD testing": filtered_logs.get("Date of Testing", ""),
+                "Due USFD testing": filtered_logs.get("Due Date", ""),
+                "Done by": filtered_logs.get("Done By", ""),
+                "REMARKS": filtered_logs.get("Remarks", "")
             })
-            
             display_df.insert(0, "Sr No.", range(1, len(display_df) + 1))
             
             st.dataframe(display_df, use_container_width=True, hide_index=True)
             
-            csv = display_df.to_csv(index=False).encode('utf-8')
-            st.download_button("📥 Download Testing Report (CSV)", csv, "Rail_Testing_Report.csv", "text/csv")
+            # Downloads
+            col_d1, col_d2 = st.columns(2)
+            file_pfx = sel_jur.split(" (")[0].replace("/", "_")
+            
+            col_d1.download_button("📥 Download CSV Report", display_df.to_csv(index=False).encode('utf-8'), f"Rail_Testing_{file_pfx}.csv", "text/csv")
+            
+            try:
+                buf = io.BytesIO()
+                with pd.ExcelWriter(buf, engine='openpyxl') as writer:
+                    display_df.to_excel(writer, index=False, sheet_name='Rail_Testing_Report')
+                col_d2.download_button("📊 Download Excel Report", buf.getvalue(), f"Rail_Testing_{file_pfx}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            except:
+                col_d2.info("Ensure openpyxl is available for Excel downloads.")
 
     elif rail_action == "⚠️ Log Rail Defect":
         st.markdown("### Log a Specific Rail Defect")
@@ -527,18 +568,34 @@ with tab3:
         d = {}
         if defect_mode == "🔄 Re-Test Existing Defect":
             defects_df = get_rail_defects_df()
-            if defects_df.empty:
+            if defects_df.empty or "Date of Testing" not in defects_df.columns:
                 st.warning("No existing defects found in the database to re-test.")
             else:
-                defects_df["ParsedDate"] = pd.to_datetime(defects_df["Date of Testing"], format="%d/%m/%Y", errors='coerce')
-                defects_df = defects_df.sort_values(by="ParsedDate", ascending=False)
+                st.markdown("#### 🔍 Filter Existing Defects")
+                fc1, fc2 = st.columns(2)
+                f_start = fc1.date_input("Filter From Date", value=datetime.date.today() - datetime.timedelta(days=180))
+                f_jur = fc2.selectbox("Filter Jurisdiction", list(JE_OPTIONS.keys()), key="def_filter_jur")
                 
-                opts = {row["Defect ID"]: f"Km {row['Km']} | {row['Defect location']} | Last Tested: {row['Date of Testing']}" for _, row in defects_df.iterrows()}
-                sel_def_id = st.selectbox("Select Existing Defect to Update:", options=[""] + list(opts.keys()), format_func=lambda x: "Select a defect..." if x=="" else opts[x])
+                defects_df["ParsedDate"] = pd.to_datetime(defects_df["Date of Testing"], format="%d/%m/%Y", errors='coerce').dt.date
+                defects_df["KM_Val"] = defects_df["Km"].apply(extract_km)
                 
-                if sel_def_id:
-                    d = defects_df[defects_df["Defect ID"] == sel_def_id].iloc[0].to_dict()
-                    st.info(f"Loaded Defect ID: {sel_def_id}. Old 'Present' values will become 'Previous'.")
+                mk_d = (defects_df["ParsedDate"] >= f_start)
+                min_k, max_k = JE_OPTIONS[f_jur]
+                if f_jur == "All Division (Complete)": mk_j = pd.Series([True]*len(defects_df))
+                elif f_jur == "Unassigned / Invalid KM": mk_j = (defects_df["KM_Val"] == -1)
+                else: mk_j = (defects_df["KM_Val"] >= min_k) & (defects_df["KM_Val"] <= max_k)
+                
+                filtered_def_list = defects_df[mk_d & mk_j].sort_values(by="ParsedDate", ascending=False)
+                
+                if filtered_def_list.empty:
+                    st.warning("No defects match your filter criteria.")
+                else:
+                    opts = {row["Defect ID"]: f"Km {row.get('Km','')} | {row.get('Defect location','')} | Last Tested: {row.get('Date of Testing','')}" for _, row in filtered_def_list.iterrows()}
+                    sel_def_id = st.selectbox("Select Filtered Defect to Update:", options=[""] + list(opts.keys()), format_func=lambda x: "Select a defect..." if x=="" else opts[x])
+                    
+                    if sel_def_id:
+                        d = filtered_def_list[filtered_def_list["Defect ID"] == sel_def_id].iloc[0].to_dict()
+                        st.info(f"Loaded Defect ID: {sel_def_id}. Old 'Present' values will become 'Previous'.")
 
         with st.form("log_rail_defect", clear_on_submit=True):
             st.markdown("Enter details as per the USFD Rail Defect Register format:")
@@ -571,7 +628,6 @@ with tab3:
             st.markdown("**Previous vs Present Readings**")
             p1, p2 = st.columns(2)
             
-            # Smart logic: For Re-Tests, the DB's "Present" becomes the form's "Previous".
             prev_amp = str(d.get("Amplitude Present", "")) if defect_mode == "🔄 Re-Test Existing Defect" else str(d.get("Amplitude Previous", ""))
             rd_amp_prev = p1.text_input("Amplitude (Previous)", value=prev_amp)
             rd_amp_pres = p2.text_input("Amplitude (Present)")
@@ -610,14 +666,36 @@ with tab3:
                     st.success("✅ Defect logged successfully into the Rail Defect Database!")
 
     elif rail_action == "📋 View Rail Defect Register":
-        st.markdown("### 📋 Rail Defect Database")
+        st.markdown("### 📋 Rail Defect Database & Reports")
         defects_df = get_rail_defects_df()
         if defects_df.empty:
             st.info("No rail defects logged yet.")
         else:
-            st.dataframe(defects_df, use_container_width=True)
-            csv = defects_df.to_csv(index=False).encode('utf-8')
-            st.download_button("📥 Download Defect Register (CSV)", csv, "Rail_Defects.csv", "text/csv")
+            sel_jur_def = st.selectbox("Filter Defect Register by Jurisdiction:", list(JE_OPTIONS.keys()), key="def_reg_jur")
+            min_k, max_k = JE_OPTIONS[sel_jur_def]
+            
+            defects_df["KM_Val"] = defects_df["Km"].apply(extract_km)
+            if sel_jur_def == "All Division (Complete)":
+                filtered_defects = defects_df
+            elif sel_jur_def == "Unassigned / Invalid KM":
+                filtered_defects = defects_df[defects_df["KM_Val"] == -1]
+            else:
+                filtered_defects = defects_df[(defects_df["KM_Val"] >= min_k) & (defects_df["KM_Val"] <= max_k)]
+            
+            display_def_df = filtered_defects.drop(columns=["KM_Val"], errors='ignore')
+            st.dataframe(display_def_df, use_container_width=True)
+            
+            col_d1, col_d2 = st.columns(2)
+            file_pfx = sel_jur_def.split(" (")[0].replace("/", "_")
+            
+            col_d1.download_button("📥 Download Defect CSV", display_def_df.to_csv(index=False).encode('utf-8'), f"Rail_Defects_{file_pfx}.csv", "text/csv")
+            try:
+                buf = io.BytesIO()
+                with pd.ExcelWriter(buf, engine='openpyxl') as writer:
+                    display_def_df.to_excel(writer, index=False, sheet_name='Rail_Defects')
+                col_d2.download_button("📊 Download Defect Excel", buf.getvalue(), f"Rail_Defects_{file_pfx}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            except:
+                col_d2.info("Ensure openpyxl is available for Excel downloads.")
 
 # ---------------------------------------------------------
 # TAB 4: MODIFY WELD (MMG)
