@@ -523,17 +523,26 @@ with tab3:
             logs_df["From_Km_Float"] = logs_df["From Km"].apply(safe_float)
             logs_df["ParsedDate"] = pd.to_datetime(logs_df["Date of Testing"], format="%d/%m/%Y", errors='coerce')
 
-            sel_jur = st.selectbox("Filter by Jurisdiction for Report:", list(JE_OPTIONS.keys()), key="rail_rep_jur")
-            min_k, max_k = JE_OPTIONS[sel_jur]
+            # Jurisdiction and Km Range Synergy
+            fc1, fc2 = st.columns(2)
+            sel_jur = fc1.selectbox("Filter by Jurisdiction:", list(JE_OPTIONS.keys()), key="rail_rep_jur")
             
-            if sel_jur == "All Division (Complete)":
-                filtered_logs = logs_df
-            elif sel_jur == "Unassigned / Invalid KM":
-                filtered_logs = logs_df[logs_df["From_Km_Float"] < 0]
-            else:
-                filtered_logs = logs_df[(logs_df["From_Km_Float"] >= min_k) & (logs_df["From_Km_Float"] <= max_k)]
+            min_default, max_default = JE_OPTIONS[sel_jur]
+            if min_default < 0: min_default, max_default = 0.0, 378.0
+            
+            km_range = fc2.slider("Filter Exact Km Range:", min_value=0.0, max_value=378.0, value=(float(min_default), float(max_default)), step=0.100)
 
-            filtered_logs = filtered_logs.sort_values(by=["From_Km_Float", "ParsedDate"], ascending=[True, False])
+            # Filtering logic
+            mask_jur = pd.Series([True] * len(logs_df))
+            if sel_jur == "Unassigned / Invalid KM":
+                mask_jur = (logs_df["From_Km_Float"] < 0)
+            elif sel_jur != "All Division (Complete)":
+                j_min, j_max = JE_OPTIONS[sel_jur]
+                mask_jur = (logs_df["From_Km_Float"] >= j_min) & (logs_df["From_Km_Float"] <= j_max)
+
+            mask_km = (logs_df["From_Km_Float"] >= km_range[0]) & (logs_df["From_Km_Float"] <= km_range[1])
+
+            filtered_logs = logs_df[mask_jur & mask_km].sort_values(by=["From_Km_Float", "ParsedDate"], ascending=[True, False])
             
             display_df = pd.DataFrame({
                 "From Km": filtered_logs["From Km"].apply(lambda x: f"{float(x):.3f}" if str(x).strip()!="" else ""),
@@ -572,20 +581,30 @@ with tab3:
                 st.warning("No existing defects found in the database to re-test.")
             else:
                 st.markdown("#### 🔍 Filter Existing Defects")
-                fc1, fc2 = st.columns(2)
+                fc1, fc2, fc3 = st.columns(3)
                 f_start = fc1.date_input("Filter From Date", value=datetime.date.today() - datetime.timedelta(days=180))
                 f_jur = fc2.selectbox("Filter Jurisdiction", list(JE_OPTIONS.keys()), key="def_filter_jur")
                 
+                f_default_min, f_default_max = JE_OPTIONS[f_jur]
+                if f_default_min < 0: f_default_min, f_default_max = 0.0, 378.0
+                f_km_range = fc3.slider("Filter Exact Km Range", min_value=0.0, max_value=378.0, value=(float(f_default_min), float(f_default_max)), step=0.100, key="def_km_slider")
+
                 defects_df["ParsedDate"] = pd.to_datetime(defects_df["Date of Testing"], format="%d/%m/%Y", errors='coerce').dt.date
                 defects_df["KM_Val"] = defects_df["Km"].apply(extract_km)
+                defects_df["KM_Float"] = defects_df["Km"].apply(safe_float)
                 
                 mk_d = (defects_df["ParsedDate"] >= f_start)
-                min_k, max_k = JE_OPTIONS[f_jur]
-                if f_jur == "All Division (Complete)": mk_j = pd.Series([True]*len(defects_df))
-                elif f_jur == "Unassigned / Invalid KM": mk_j = (defects_df["KM_Val"] == -1)
-                else: mk_j = (defects_df["KM_Val"] >= min_k) & (defects_df["KM_Val"] <= max_k)
                 
-                filtered_def_list = defects_df[mk_d & mk_j].sort_values(by="ParsedDate", ascending=False)
+                mk_j = pd.Series([True] * len(defects_df))
+                if f_jur == "Unassigned / Invalid KM":
+                    mk_j = (defects_df["KM_Val"] == -1)
+                elif f_jur != "All Division (Complete)":
+                    j_min, j_max = JE_OPTIONS[f_jur]
+                    mk_j = (defects_df["KM_Val"] >= j_min) & (defects_df["KM_Val"] <= j_max)
+
+                mk_k = (defects_df["KM_Float"] >= f_km_range[0]) & (defects_df["KM_Float"] <= f_km_range[1])
+                
+                filtered_def_list = defects_df[mk_d & mk_j & mk_k].sort_values(by="ParsedDate", ascending=False)
                 
                 if filtered_def_list.empty:
                     st.warning("No defects match your filter criteria.")
@@ -671,18 +690,28 @@ with tab3:
         if defects_df.empty:
             st.info("No rail defects logged yet.")
         else:
-            sel_jur_def = st.selectbox("Filter Defect Register by Jurisdiction:", list(JE_OPTIONS.keys()), key="def_reg_jur")
-            min_k, max_k = JE_OPTIONS[sel_jur_def]
+            fc1, fc2 = st.columns(2)
+            sel_jur_def = fc1.selectbox("Filter Defect Register by Jurisdiction:", list(JE_OPTIONS.keys()), key="def_reg_jur")
             
+            reg_min, reg_max = JE_OPTIONS[sel_jur_def]
+            if reg_min < 0: reg_min, reg_max = 0.0, 378.0
+            reg_km_range = fc2.slider("Filter Exact Km Range:", min_value=0.0, max_value=378.0, value=(float(reg_min), float(reg_max)), step=0.100, key="def_reg_slider")
+
             defects_df["KM_Val"] = defects_df["Km"].apply(extract_km)
-            if sel_jur_def == "All Division (Complete)":
-                filtered_defects = defects_df
-            elif sel_jur_def == "Unassigned / Invalid KM":
-                filtered_defects = defects_df[defects_df["KM_Val"] == -1]
-            else:
-                filtered_defects = defects_df[(defects_df["KM_Val"] >= min_k) & (defects_df["KM_Val"] <= max_k)]
+            defects_df["KM_Float"] = defects_df["Km"].apply(safe_float)
             
-            display_def_df = filtered_defects.drop(columns=["KM_Val"], errors='ignore')
+            mask_j = pd.Series([True] * len(defects_df))
+            if sel_jur_def == "Unassigned / Invalid KM":
+                mask_j = (defects_df["KM_Val"] == -1)
+            elif sel_jur_def != "All Division (Complete)":
+                j_min, j_max = JE_OPTIONS[sel_jur_def]
+                mask_j = (defects_df["KM_Val"] >= j_min) & (defects_df["KM_Val"] <= j_max)
+
+            mask_k = (defects_df["KM_Float"] >= reg_km_range[0]) & (defects_df["KM_Float"] <= reg_km_range[1])
+
+            filtered_defects = defects_df[mask_j & mask_k]
+            display_def_df = filtered_defects.drop(columns=["KM_Val", "KM_Float"], errors='ignore')
+            
             st.dataframe(display_def_df, use_container_width=True)
             
             col_d1, col_d2 = st.columns(2)
