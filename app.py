@@ -72,6 +72,14 @@ JE_OPTIONS = {
     "Unassigned / Invalid KM": (-1, -1)
 }
 
+KM_BLOCK_OPTIONS = [
+    "All Km Blocks in Jurisdiction",
+    "Km 0 - 25", "Km 25 - 50", "Km 50 - 75", "Km 75 - 100",
+    "Km 100 - 125", "Km 125 - 150", "Km 150 - 175", "Km 175 - 200",
+    "Km 200 - 225", "Km 225 - 250", "Km 250 - 275", "Km 275 - 300",
+    "Km 300 - 325", "Km 325 - 350", "Km 350 - 378"
+]
+
 SECTION_OPTIONS = [
     "", "ROHA-KOL", "KOL-INP", "INP-MNI", "MNI-GNO", "GNO-VEER", "VEER-SAPE", 
     "SAPE-KFD", "KFD-VINH", "VINH-DWV", "DWV-KLBN", "KLBN-KHED", "KHED-ANO", 
@@ -105,9 +113,23 @@ def extract_km(loc_str):
     match = re.search(r'(\d+)', loc_cleaned)
     return int(match.group(1)) if match else -1
 
+def filter_by_km_block(df, km_col_name, block_str):
+    if block_str == "All Km Blocks in Jurisdiction":
+        return df
+    try:
+        parts = block_str.replace("Km ", "").split(" - ")
+        low, high = int(parts[0]), int(parts[1])
+        return df[(df[km_col_name] >= low) & (df[km_col_name] < high)]
+    except:
+        return df
+
 def safe_int(val):
     try: return int(float(val))
     except: return 0
+
+def safe_float(val):
+    try: return float(val)
+    except: return 0.0
 
 def parse_time_val(val):
     if val is None or pd.isna(val) or str(val).strip() == "": return 0, 0
