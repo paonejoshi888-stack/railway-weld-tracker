@@ -514,47 +514,114 @@ with tab3:
     ], horizontal=True)
 
     if rail_action == "📝 Log Section Testing":
-        with st.form("log_rail_test", clear_on_submit=True):
-            st.markdown("Log completed section testing. Specify if done by Department or Contractor.")
+        st.markdown("### 📝 Log or Update Section Testing")
+        
+        rt_mode = st.radio("Entry Mode:", ["🆕 Log New Testing", "✏️ Edit/Update Past Testing"], horizontal=True)
+        
+        d = {}
+        target_row_idx = None
+        sel_log_id = None
+        logs_df = get_rail_logs_df()
+        
+        if rt_mode == "✏️ Edit/Update Past Testing":
+            if logs_df.empty or "Log ID" not in logs_df.columns:
+                st.warning("No past testing logs found.")
+            else:
+                st.markdown("#### 🔍 Find Existing Record")
+                c_f1, c_f2 = st.columns(2)
+                f_jur = c_f1.selectbox("Filter by Jurisdiction", list(JE_OPTIONS.keys()), key="rt_edit_jur")
+                min_k, max_k = JE_OPTIONS[f_jur]
+                if min_k < 0: min_k, max_k = 0, 400
+                
+                logs_df["ParsedDate"] = robust_parse_date_series(logs_df.get("Date of Testing", pd.Series()))
+                logs_df["KM_Val"] = logs_df.get("From Km", pd.Series()).apply(extract_km)
+                
+                if f_jur != "All Division (Complete)" and f_jur != "Unassigned / Invalid KM":
+                    mask = (logs_df["KM_Val"] >= min_k) & (logs_df["KM_Val"] <= max_k)
+                    fl_logs = logs_df[mask].sort_values(by="ParsedDate", ascending=False)
+                else:
+                    fl_logs = logs_df.sort_values(by="ParsedDate", ascending=False)
+                    
+                opts = {row["Log ID"]: f"{row.get('Date of Testing','')} | Km {row.get('From Km','')} to {row.get('To Km','')} | {row.get('Done By','')}" for _, row in fl_logs.iterrows()}
+                sel_log_id = c_f2.selectbox("Select Record to Update:", options=[""] + list(opts.keys()), format_func=lambda x: "Select a record..." if x=="" else opts[x])
+                
+                if sel_log_id:
+                    d = fl_logs[fl_logs["Log ID"] == sel_log_id].iloc[0].to_dict()
+                    target_row_idx = int(fl_logs[fl_logs["Log ID"] == sel_log_id].index[0]) + 2
+                    st.info(f"Loaded Log ID: {sel_log_id}. Make your changes below and save.")
+
+        with st.form("log_rail_test", clear_on_submit=(rt_mode=="🆕 Log New Testing")):
             c1, c2 = st.columns(2)
-            rt_date = c1.date_input("Date of Testing *", format="DD/MM/YYYY")
-            rt_due = c2.date_input("Due Date of Testing *", format="DD/MM/YYYY")
+            
+            rt_date_val = parse_date(d.get("Date of Testing")) if d else None
+            rt_due_val = parse_date(d.get("Due Date")) if d else None
+            
+            rt_date = c1.date_input("Date of Testing *", value=rt_date_val, format="DD/MM/YYYY")
+            rt_due = c2.date_input("Due Date of Testing *", value=rt_due_val, format="DD/MM/YYYY")
             
             c3, c4 = st.columns(2)
-            rt_from = c3.text_input("From Km (e.g., 10.100 or 10/2) *")
-            rt_to = c4.text_input("To Km (e.g., 13.000 or 13/2) *")
+            rt_from = c3.text_input("From Km (e.g., 10.100 or 10/2) *", value=str(d.get("From Km", "")))
+            rt_to = c4.text_input("To Km (e.g., 13.000 or 13/2) *", value=str(d.get("To Km", "")))
             
-            c5, c6 = st.columns(2)
-            rt_by_type = c5.selectbox("Done By (DEPT/CONT) *", ["", "DEPT", "CONT"])
+            st.markdown("**Testing Agency & Operator Details**")
+            c5, c6, c7 = st.columns([1, 1.5, 1.5])
             
-            done_by_str = ""
-            if rt_by_type == "DEPT":
-                dept_op = c6.selectbox("Designation/Team *", ["", "SSE/USFD/MNI", "SSE/USFD/CHI", "JE/USFD/RN", "SSE/USFD/KKW"])
-                done_by_str = dept_op
-            elif rt_by_type == "CONT":
-                c_ag, c_op = c6.columns(2)
-                cont_agency = c_ag.text_input("Agency Name *")
-                cont_operator = c_op.text_input("Operator Name *")
-                done_by_str = f"CONT: {cont_agency.strip()} ({cont_operator.strip()})"
-            else:
-                c6.text("")
+            done_opts = ["", "CONT", "DEPT", "JOINTLY", "OTHER"]
+            db_done = str(d.get("Done By", ""))
+            default_cat, default_ag, default_op = "", "", ""
+            
+            if db_done:
+                if ":" in db_done:
+                    default_cat = db_done.split(":")[0].strip()
+                    rest = db_done.split(":")[1].strip()
+                    if "(Op:" in rest:
+                        default_ag = rest.split("(Op:")[0].strip()
+                        default_op = rest.split("(Op:")[1].replace(")","").strip()
+                    else:
+                        default_ag = rest
+                else:
+                    default_ag = db_done
+                    if "CONT" in db_done.upper(): default_cat = "CONT"
+                    elif "SSE" in db_done.upper() or "JE" in db_done.upper(): default_cat = "DEPT"
+            
+            cat_idx = done_opts.index(default_cat) if default_cat in done_opts else 0
+            
+            rt_by_type = c5.selectbox("Done By Category *", done_opts, index=cat_idx)
+            rt_agency = c6.text_input("Agency/Department Name *", value=default_ag, placeholder="e.g. SSE/USFD/CHI or Agency Name")
+            rt_operator = c7.text_input("Operator Name", value=default_op, placeholder="e.g. Ramesh")
 
-            rt_rem = st.text_input("Remarks")
+            rt_rem = st.text_input("Remarks", value=str(d.get("Remarks", "")))
             
-            if st.form_submit_button("Save Testing Log", type="primary"):
+            submit_label = "Update Testing Log" if rt_mode == "✏️ Edit/Update Past Testing" else "Save Testing Log"
+            
+            if st.form_submit_button(submit_label, type="primary"):
                 if not rt_from.strip() or not rt_to.strip():
                     st.error("'From Km' and 'To Km' are required.")
-                elif not rt_by_type or not done_by_str:
-                    st.error("Please fill all required testing ownership fields.")
+                elif not rt_by_type or not rt_agency.strip():
+                    st.error("Please fill 'Done By Category' and 'Agency/Department Name'.")
+                elif rt_mode == "✏️ Edit/Update Past Testing" and not sel_log_id:
+                    st.error("Please select a record to update.")
                 else:
-                    log_id = f"RTLOG-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
+                    op_str = f" (Op: {rt_operator.strip()})" if rt_operator.strip() else ""
+                    done_by_str = f"{rt_by_type}: {rt_agency.strip()}{op_str}"
                     ts = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-                    row = [
-                        log_id, rt_date.strftime("%d/%m/%Y"), rt_from.strip(), rt_to.strip(), 
-                        rt_due.strftime("%d/%m/%Y"), done_by_str, rt_rem.strip(), st.session_state["user"], ts
-                    ]
-                    rail_logs_sheet.append_row(row)
-                    st.success(f"✅ Testing logged for Km {rt_from} to {rt_to}!")
+                    
+                    if rt_mode == "🆕 Log New Testing":
+                        log_id = f"RTLOG-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
+                        row = [
+                            log_id, rt_date.strftime("%d/%m/%Y"), rt_from.strip(), rt_to.strip(), 
+                            rt_due.strftime("%d/%m/%Y"), done_by_str, rt_rem.strip(), st.session_state["user"], ts
+                        ]
+                        rail_logs_sheet.append_row(row)
+                        st.success(f"✅ Testing logged for Km {rt_from} to {rt_to}!")
+                    else:
+                        log_id = sel_log_id
+                        row = [
+                            log_id, rt_date.strftime("%d/%m/%Y"), rt_from.strip(), rt_to.strip(), 
+                            rt_due.strftime("%d/%m/%Y"), done_by_str, rt_rem.strip(), st.session_state["user"], ts
+                        ]
+                        rail_logs_sheet.update(f"A{target_row_idx}:I{target_row_idx}", [row])
+                        st.success(f"✅ Testing log {log_id} updated successfully!")
 
     elif rail_action == "📊 Section Testing Report":
         st.markdown("### 🛤️ Rail Section Testing History & Jurisdiction Reports")
