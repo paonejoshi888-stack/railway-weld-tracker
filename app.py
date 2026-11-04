@@ -286,7 +286,7 @@ with tab1:
 
         if st.form_submit_button("Save Weld Record & Generate RDSO", type="primary"):
             add_ag = add_ag_oth.strip() if add_ag_sel == "OTHER" else add_ag_sel
-            add_sup = add_sup_oth.strip() if add_sup_sel == "Other" else add_sup_oth
+            add_sup = add_sup_oth.strip() if add_sup_sel == "Other" else add_sup_sel
             add_weldno = f"{add_weldno_pfx}{add_weldno_num}"
 
             add_bf_str = f"{add_bf_h:02d}:{add_bf_m:02d}"
@@ -861,28 +861,56 @@ with tab3:
                 col_d2.info("Ensure openpyxl is available for Excel downloads.")
 
 # ---------------------------------------------------------
-# TAB 4: MODIFY WELD (MMG)
+# TAB 4: MODIFY WELD (MMG) - UPDATED WITH FILTERS
 # ---------------------------------------------------------
 with tab4:
     st.subheader("Modify Existing MMG Weld Record")
-    mod_search_id = st.text_input("Enter AT weld ID to edit MMG details:")
     
-    if st.button("Fetch MMG Record"):
-        df = get_weld_df()
-        search_clean = mod_search_id.strip().upper()
-        if not df.empty and search_clean in df["AT weld ID"].astype(str).values:
-            row_idx = df[df["AT weld ID"].astype(str) == search_clean].index[0]
-            st.session_state['mod_weld_row'] = int(row_idx) + 2 
-            st.session_state['mod_weld_data'] = df.iloc[row_idx].to_dict()
-            st.success(f"Record '{search_clean}' found!")
+    df_mod = get_weld_df()
+    if df_mod.empty or "AT weld ID" not in df_mod.columns:
+        st.info("No MMG weld records available to modify.")
+    else:
+        st.markdown("#### 🔍 Filter & Select Weld Record")
+        c_m1, c_m2, c_m3 = st.columns(3)
+        mod_jur = c_m1.selectbox("Filter by Jurisdiction", list(JE_OPTIONS.keys()), key="mod_filter_jur")
+        mod_start_d = c_m2.date_input("From Welding Date", value=datetime.date(2020, 1, 1), key="mod_start_d")
+        mod_end_d = c_m3.date_input("To Welding Date", value=datetime.date.today(), key="mod_end_d")
+        
+        min_k, max_k = JE_OPTIONS[mod_jur]
+        if min_k < 0: min_k, max_k = 0, 400
+        
+        df_mod["ParsedDate"] = robust_parse_date_series(df_mod.get("Date of Welding", pd.Series()))
+        df_mod["KM_Val"] = df_mod.get("Location", pd.Series()).apply(extract_km)
+        
+        # Apply Jurisdiction Filter
+        if mod_jur != "All Division (Complete)" and mod_jur != "Unassigned / Invalid KM":
+            mask_j = (df_mod["KM_Val"] >= min_k) & (df_mod["KM_Val"] <= max_k)
+        elif mod_jur == "Unassigned / Invalid KM":
+            mask_j = (df_mod["KM_Val"] == -1)
         else:
-            st.session_state.pop('mod_weld_data', None)
-            st.error("Record not found in Weld Database.")
+            mask_j = pd.Series([True] * len(df_mod))
+            
+        # Apply Date Filter
+        mask_d = (df_mod["ParsedDate"] >= mod_start_d) & (df_mod["ParsedDate"] <= mod_end_d)
+        
+        filtered_mod_df = df_mod[mask_j & mask_d].sort_values(by="ParsedDate", ascending=False)
+        
+        if filtered_mod_df.empty:
+            st.warning("No weld records match the selected jurisdiction and date range.")
+        else:
+            mod_opts = {row["AT weld ID"]: f"Weld ID: {row['AT weld ID']} | Date: {row.get('Date of Welding','')} | Loc: {row.get('Location','')}" for _, row in filtered_mod_df.iterrows()}
+            sel_mod_weld = st.selectbox("Select Weld ID to Edit:", options=[""] + list(mod_opts.keys()), format_func=lambda x: "Select a weld..." if x=="" else mod_opts[x])
+            
+            if sel_mod_weld:
+                row_idx = filtered_mod_df[filtered_mod_df["AT weld ID"] == sel_mod_weld].index[0]
+                st.session_state['mod_weld_row'] = int(row_idx) + 2 
+                st.session_state['mod_weld_data'] = df_mod.loc[row_idx].to_dict()
+                st.success(f"Record '{sel_mod_weld}' loaded successfully!")
 
     if 'mod_weld_data' in st.session_state:
         d = st.session_state['mod_weld_data']
         with st.form("mod_weld_form"):
-            st.markdown("Edit fields below. Leave unchanged to keep current data.")
+            st.markdown(f"### ✏️ Editing Weld ID: **{d.get('AT weld ID')}**")
             c1, c2, c3, c4 = st.columns(4)
             m_dw = c1.date_input("Date of Welding *", value=parse_date(d.get("Date of Welding")), min_value=MIN_DATE, format="DD/MM/YYYY")
             m_loc = c2.text_input("Location *", value=str(d.get("Location", "")))
