@@ -107,7 +107,6 @@ def robust_parse_date_series(series):
     return parsed.dt.date
 
 def extract_km(loc_str):
-    """Smartly extracts the very first number from any location string (81/2-3 -> 81)"""
     if not loc_str or pd.isna(loc_str): return -1
     loc_cleaned = str(loc_str).strip()
     match = re.search(r'(\d+)', loc_cleaned)
@@ -130,6 +129,15 @@ def safe_int(val):
 def safe_float(val):
     try: return float(val)
     except: return 0.0
+
+def safe_format_km(val):
+    """Safely formats km for display without crashing on string locations like '81/2'"""
+    v_str = str(val).strip()
+    if not v_str or v_str == "nan": return ""
+    try:
+        return f"{float(v_str):.3f}"
+    except ValueError:
+        return v_str
 
 def parse_time_val(val):
     if val is None or pd.isna(val) or str(val).strip() == "": return 0, 0
@@ -513,8 +521,8 @@ with tab3:
             rt_due = c2.date_input("Due Date of Testing *", format="DD/MM/YYYY")
             
             c3, c4 = st.columns(2)
-            rt_from = c3.number_input("From Km (e.g., 10.100) *", min_value=0.0, step=0.100, format="%.3f")
-            rt_to = c4.number_input("To Km (e.g., 13.000) *", min_value=0.0, step=0.100, format="%.3f")
+            rt_from = c3.text_input("From Km (e.g., 10.100 or 10/2) *")
+            rt_to = c4.text_input("To Km (e.g., 13.000 or 13/2) *")
             
             c5, c6 = st.columns(2)
             rt_by_type = c5.selectbox("Done By (DEPT/CONT) *", ["", "DEPT", "CONT"])
@@ -534,19 +542,19 @@ with tab3:
             rt_rem = st.text_input("Remarks")
             
             if st.form_submit_button("Save Testing Log", type="primary"):
-                if rt_from >= rt_to:
-                    st.error("'From Km' must be strictly less than 'To Km'.")
+                if not rt_from.strip() or not rt_to.strip():
+                    st.error("'From Km' and 'To Km' are required.")
                 elif not rt_by_type or not done_by_str:
                     st.error("Please fill all required testing ownership fields.")
                 else:
                     log_id = f"RTLOG-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
                     ts = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
                     row = [
-                        log_id, rt_date.strftime("%d/%m/%Y"), float(rt_from), float(rt_to), 
+                        log_id, rt_date.strftime("%d/%m/%Y"), rt_from.strip(), rt_to.strip(), 
                         rt_due.strftime("%d/%m/%Y"), done_by_str, rt_rem.strip(), st.session_state["user"], ts
                     ]
                     rail_logs_sheet.append_row(row)
-                    st.success(f"✅ Testing logged for Km {rt_from:.3f} to {rt_to:.3f}!")
+                    st.success(f"✅ Testing logged for Km {rt_from} to {rt_to}!")
 
     elif rail_action == "📊 Section Testing Report":
         st.markdown("### 🛤️ Rail Section Testing History & Jurisdiction Reports")
@@ -583,8 +591,8 @@ with tab3:
             filtered_logs = logs_df[mk_d & mk_j & mk_k].sort_values(by=["KM_Val", "ParsedDate"], ascending=[True, False])
             
             display_df = pd.DataFrame({
-                "From Km": filtered_logs["From Km"].apply(lambda x: f"{float(x):.3f}" if str(x).strip()!="" else ""),
-                "To Km": filtered_logs["To Km"].apply(lambda x: f"{float(x):.3f}" if str(x).strip()!="" else ""),
+                "From Km": filtered_logs["From Km"].apply(safe_format_km),
+                "To Km": filtered_logs["To Km"].apply(safe_format_km),
                 "Last USFD testing": filtered_logs.get("Date of Testing", ""),
                 "Due USFD testing": filtered_logs.get("Due Date", ""),
                 "Done by": filtered_logs.get("Done By", ""),
