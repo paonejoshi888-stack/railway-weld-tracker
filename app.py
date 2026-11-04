@@ -72,14 +72,6 @@ JE_OPTIONS = {
     "Unassigned / Invalid KM": (-1, -1)
 }
 
-KM_BLOCK_OPTIONS = [
-    "All Km Blocks in Jurisdiction",
-    "Km 0 - 25", "Km 25 - 50", "Km 50 - 75", "Km 75 - 100",
-    "Km 100 - 125", "Km 125 - 150", "Km 150 - 175", "Km 175 - 200",
-    "Km 200 - 225", "Km 225 - 250", "Km 250 - 275", "Km 275 - 300",
-    "Km 300 - 325", "Km 325 - 350", "Km 350 - 378"
-]
-
 SECTION_OPTIONS = [
     "", "ROHA-KOL", "KOL-INP", "INP-MNI", "MNI-GNO", "GNO-VEER", "VEER-SAPE", 
     "SAPE-KFD", "KFD-VINH", "VINH-DWV", "DWV-KLBN", "KLBN-KHED", "KHED-ANO", 
@@ -107,30 +99,15 @@ def robust_parse_date_series(series):
     return parsed.dt.date
 
 def extract_km(loc_str):
-    """Extracts the integer Km before any slash or decimal (e.g. '81/2-3' -> 81, '81.2' -> 81)."""
+    """Smartly extracts the very first number from any location string (81/2-3 -> 81)"""
     if not loc_str or pd.isna(loc_str): return -1
     loc_cleaned = str(loc_str).strip()
-    # If formatted as 81/2-3 or 81.2, split by division or decimal
-    match = re.search(r'^(\d+)', loc_cleaned)
+    match = re.search(r'(\d+)', loc_cleaned)
     return int(match.group(1)) if match else -1
-
-def filter_by_km_block(df, km_col_name, block_str):
-    if block_str == "All Km Blocks in Jurisdiction":
-        return df
-    try:
-        parts = block_str.replace("Km ", "").split(" - ")
-        low, high = int(parts[0]), int(parts[1])
-        return df[(df[km_col_name] >= low) & (df[km_col_name] < high)]
-    except:
-        return df
 
 def safe_int(val):
     try: return int(float(val))
     except: return 0
-
-def safe_float(val):
-    try: return float(val)
-    except: return 0.0
 
 def parse_time_val(val):
     if val is None or pd.isna(val) or str(val).strip() == "": return 0, 0
@@ -335,27 +312,34 @@ with tab2:
         df_weld["ParsedDate"] = robust_parse_date_series(df_weld["Date of Welding"])
         df_weld["KM_Value"] = df_weld["Location"].apply(extract_km)
         
-        c_s1, c_s2, c_s3 = st.columns(3)
+        sel_jur = st.selectbox("Filter by Jurisdiction", list(JE_OPTIONS.keys()))
+        min_k, max_k = JE_OPTIONS[sel_jur]
+        if min_k < 0: min_k, max_k = 0, 400
+
+        c_s1, c_s2, c_s3, c_s4 = st.columns(4)
         start_d = c_s1.date_input("From Welding Date", value=datetime.date.today() - datetime.timedelta(days=30))
         end_d = c_s2.date_input("To Welding Date", value=datetime.date.today())
-        sel_jur = c_s3.selectbox("Filter by Jurisdiction", list(JE_OPTIONS.keys()))
         
-        c_s4, c_s5 = st.columns(2)
-        sel_sec = c_s4.selectbox("Filter by Section", ["All Sections"] + SECTION_OPTIONS[1:])
-        sel_loc = c_s5.text_input("Filter by Location (e.g. 75/2)", placeholder="e.g. 75/2")
+        km_options = list(range(0, 401))
+        f_km_from = c_s3.selectbox("From Km", km_options, index=min_k, key="wusfd_k1")
+        f_km_to = c_s4.selectbox("To Km", km_options, index=min(max_k, 400), key="wusfd_k2")
 
-        min_k, max_k = JE_OPTIONS[sel_jur]
-        
+        c_s5, c_s6 = st.columns(2)
+        sel_sec = c_s5.selectbox("Filter by Section", ["All Sections"] + SECTION_OPTIONS[1:])
+        sel_loc = c_s6.text_input("Filter by Location String", placeholder="e.g. 75/2")
+
         mask_date = (df_weld["ParsedDate"] >= start_d) & (df_weld["ParsedDate"] <= end_d)
         
-        if sel_jur == "All Division (Complete)": mask_jur = pd.Series([True] * len(df_weld))
-        elif sel_jur == "Unassigned / Invalid KM": mask_jur = (df_weld["KM_Value"] == -1)
-        else: mask_jur = (df_weld["KM_Value"] >= min_k) & (df_weld["KM_Value"] <= max_k)
+        mask_jur = pd.Series([True] * len(df_weld))
+        if sel_jur == "Unassigned / Invalid KM": mask_jur = (df_weld["KM_Value"] == -1)
+        elif sel_jur != "All Division (Complete)": mask_jur = (df_weld["KM_Value"] >= min_k) & (df_weld["KM_Value"] <= max_k)
             
+        mask_km = (df_weld["KM_Value"] >= f_km_from) & (df_weld["KM_Value"] <= f_km_to)
+        
         mask_sec = (df_weld["Section"] == sel_sec) if sel_sec != "All Sections" else pd.Series([True] * len(df_weld))
         mask_loc = df_weld["Location"].astype(str).str.contains(sel_loc.strip(), case=False, na=False) if sel_loc.strip() else pd.Series([True] * len(df_weld))
             
-        filtered_weld_df = df_weld[mask_date & mask_jur & mask_sec & mask_loc]
+        filtered_weld_df = df_weld[mask_date & mask_jur & mask_km & mask_sec & mask_loc]
         
         st.markdown("---")
         if filtered_weld_df.empty:
@@ -549,23 +533,32 @@ with tab3:
         if logs_df.empty or "From Km" not in logs_df.columns:
             st.info("No rail testing logs found.")
         else:
-            logs_df["From_Km_Float"] = logs_df["From Km"].apply(safe_float)
+            sel_jur = st.selectbox("Filter by Jurisdiction:", list(JE_OPTIONS.keys()), key="rail_rep_jur")
+            min_k, max_k = JE_OPTIONS[sel_jur]
+            if min_k < 0: min_k, max_k = 0, 400
+
+            c1, c2, c3, c4 = st.columns(4)
+            r_start = c1.date_input("From Date", value=datetime.date(2020, 1, 1), key="rep_d1")
+            r_end = c2.date_input("To Date", value=datetime.date.today(), key="rep_d2")
+            
+            km_options = list(range(0, 401))
+            r_km_from = c3.selectbox("From Km", km_options, index=min_k, key="rep_k1")
+            r_km_to = c4.selectbox("To Km", km_options, index=min(max_k, 400), key="rep_k2")
+
             logs_df["ParsedDate"] = robust_parse_date_series(logs_df["Date of Testing"])
+            logs_df["KM_Val"] = logs_df["From Km"].apply(extract_km)
 
-            fc1, fc2 = st.columns(2)
-            sel_jur = fc1.selectbox("Filter by Jurisdiction:", list(JE_OPTIONS.keys()), key="rail_rep_jur")
-            sel_km_block = fc2.selectbox("Filter by Km Range Block:", KM_BLOCK_OPTIONS, key="rail_rep_km")
+            mk_d = (logs_df["ParsedDate"] >= r_start) & (logs_df["ParsedDate"] <= r_end)
 
-            mask_jur = pd.Series([True] * len(logs_df))
+            mk_j = pd.Series([True] * len(logs_df))
             if sel_jur == "Unassigned / Invalid KM":
-                mask_jur = (logs_df["From_Km_Float"] < 0)
+                mk_j = (logs_df["KM_Val"] == -1)
             elif sel_jur != "All Division (Complete)":
-                j_min, j_max = JE_OPTIONS[sel_jur]
-                mask_jur = (logs_df["From_Km_Float"] >= j_min) & (logs_df["From_Km_Float"] <= j_max)
+                mk_j = (logs_df["KM_Val"] >= min_k) & (logs_df["KM_Val"] <= max_k)
 
-            filtered_logs = logs_df[mask_jur].copy()
-            filtered_logs = filter_by_km_block(filtered_logs, "From_Km_Float", sel_km_block)
-            filtered_logs = filtered_logs.sort_values(by=["From_Km_Float", "ParsedDate"], ascending=[True, False])
+            mk_k = (logs_df["KM_Val"] >= r_km_from) & (logs_df["KM_Val"] <= r_km_to)
+
+            filtered_logs = logs_df[mk_d & mk_j & mk_k].sort_values(by=["KM_Val", "ParsedDate"], ascending=[True, False])
             
             display_df = pd.DataFrame({
                 "From Km": filtered_logs["From Km"].apply(lambda x: f"{float(x):.3f}" if str(x).strip()!="" else ""),
@@ -603,30 +596,36 @@ with tab3:
                 st.warning("No existing defects found in the database to re-test.")
             else:
                 st.markdown("#### 🔍 Filter Existing Defects")
-                fc1, fc2, fc3 = st.columns(3)
-                f_start = fc1.date_input("Filter From Date", value=datetime.date(2020, 1, 1))
-                f_jur = fc2.selectbox("Filter Jurisdiction", list(JE_OPTIONS.keys()), key="def_filter_jur")
-                f_km_block = fc3.selectbox("Filter Km Range Block", KM_BLOCK_OPTIONS, key="def_km_block")
+                
+                sel_jur = st.selectbox("Filter Jurisdiction", list(JE_OPTIONS.keys()), key="def_filter_jur")
+                min_k, max_k = JE_OPTIONS[sel_jur]
+                if min_k < 0: min_k, max_k = 0, 400
+
+                c1, c2, c3, c4 = st.columns(4)
+                f_start = c1.date_input("From Date", value=datetime.date(2020, 1, 1), key="def_d1")
+                f_end = c2.date_input("To Date", value=datetime.date.today(), key="def_d2")
+                
+                km_options = list(range(0, 401))
+                f_km_from = c3.selectbox("From Km", km_options, index=min_k, key="def_k1")
+                f_km_to = c4.selectbox("To Km", km_options, index=min(max_k, 400), key="def_k2")
 
                 defects_df["ParsedDate"] = robust_parse_date_series(defects_df["Date of Testing"])
                 defects_df["KM_Val"] = defects_df["Km"].apply(extract_km)
-                defects_df["KM_Float"] = defects_df["Km"].apply(safe_float)
                 
-                mk_d = (defects_df["ParsedDate"] >= f_start)
+                mk_d = (defects_df["ParsedDate"] >= f_start) & (defects_df["ParsedDate"] <= f_end)
                 
                 mk_j = pd.Series([True] * len(defects_df))
-                if f_jur == "Unassigned / Invalid KM":
+                if sel_jur == "Unassigned / Invalid KM":
                     mk_j = (defects_df["KM_Val"] == -1)
-                elif f_jur != "All Division (Complete)":
-                    j_min, j_max = JE_OPTIONS[f_jur]
-                    mk_j = (defects_df["KM_Val"] >= j_min) & (defects_df["KM_Val"] <= j_max)
+                elif sel_jur != "All Division (Complete)":
+                    mk_j = (defects_df["KM_Val"] >= min_k) & (defects_df["KM_Val"] <= max_k)
 
-                filtered_def_list = defects_df[mk_d & mk_j].copy()
-                filtered_def_list = filter_by_km_block(filtered_def_list, "KM_Float", f_km_block)
-                filtered_def_list = filtered_def_list.sort_values(by="ParsedDate", ascending=False)
+                mk_k = (defects_df["KM_Val"] >= f_km_from) & (defects_df["KM_Val"] <= f_km_to)
+                
+                filtered_def_list = defects_df[mk_d & mk_j & mk_k].sort_values(by="ParsedDate", ascending=False)
                 
                 if filtered_def_list.empty:
-                    st.warning("No defects match your filter criteria. Try expanding your date or Km block filter.")
+                    st.warning("No defects match your filter criteria. Try expanding your date or Km filters.")
                 else:
                     opts = {row["Defect ID"]: f"Km {row.get('Km','')} | {row.get('Defect location','')} | Last Tested: {row.get('Date of Testing','')}" for _, row in filtered_def_list.iterrows()}
                     sel_def_id = st.selectbox("Select Filtered Defect to Update:", options=[""] + list(opts.keys()), format_func=lambda x: "Select a defect..." if x=="" else opts[x])
@@ -709,24 +708,33 @@ with tab3:
         if defects_df.empty:
             st.info("No rail defects logged yet.")
         else:
-            fc1, fc2 = st.columns(2)
-            sel_jur_def = fc1.selectbox("Filter Defect Register by Jurisdiction:", list(JE_OPTIONS.keys()), key="def_reg_jur")
-            sel_reg_block = fc2.selectbox("Filter by Km Range Block:", KM_BLOCK_OPTIONS, key="def_reg_km")
+            sel_jur_def = st.selectbox("Filter Defect Register by Jurisdiction:", list(JE_OPTIONS.keys()), key="def_reg_jur")
+            min_k, max_k = JE_OPTIONS[sel_jur_def]
+            if min_k < 0: min_k, max_k = 0, 400
 
+            c1, c2, c3, c4 = st.columns(4)
+            r_start = c1.date_input("From Date", value=datetime.date(2020, 1, 1), key="reg_d1")
+            r_end = c2.date_input("To Date", value=datetime.date.today(), key="reg_d2")
+            
+            km_options = list(range(0, 401))
+            r_km_from = c3.selectbox("From Km", km_options, index=min_k, key="reg_k1")
+            r_km_to = c4.selectbox("To Km", km_options, index=min(max_k, 400), key="reg_k2")
+
+            defects_df["ParsedDate"] = robust_parse_date_series(defects_df["Date of Testing"])
             defects_df["KM_Val"] = defects_df["Km"].apply(extract_km)
-            defects_df["KM_Float"] = defects_df["Km"].apply(safe_float)
             
-            mask_j = pd.Series([True] * len(defects_df))
-            if sel_jur_def == "Unassigned / Invalid KM":
-                mask_j = (defects_df["KM_Val"] == -1)
-            elif sel_jur_def != "All Division (Complete)":
-                j_min, j_max = JE_OPTIONS[sel_jur_def]
-                mask_j = (defects_df["KM_Val"] >= j_min) & (defects_df["KM_Val"] <= j_max)
+            mk_d = (defects_df["ParsedDate"] >= r_start) & (defects_df["ParsedDate"] <= r_end)
 
-            filtered_defects = defects_df[mask_j].copy()
-            filtered_defects = filter_by_km_block(filtered_defects, "KM_Float", sel_reg_block)
-            
-            display_def_df = filtered_defects.drop(columns=["KM_Val", "KM_Float"], errors='ignore')
+            mk_j = pd.Series([True] * len(defects_df))
+            if sel_jur_def == "Unassigned / Invalid KM":
+                mk_j = (defects_df["KM_Val"] == -1)
+            elif sel_jur_def != "All Division (Complete)":
+                mk_j = (defects_df["KM_Val"] >= min_k) & (defects_df["KM_Val"] <= max_k)
+
+            mk_k = (defects_df["KM_Val"] >= r_km_from) & (defects_df["KM_Val"] <= r_km_to)
+
+            filtered_defects = defects_df[mk_d & mk_j & mk_k]
+            display_def_df = filtered_defects.drop(columns=["KM_Val", "ParsedDate"], errors='ignore')
             
             st.dataframe(display_def_df, use_container_width=True)
             
