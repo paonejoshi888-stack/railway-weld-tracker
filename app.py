@@ -286,7 +286,7 @@ with tab1:
 
         if st.form_submit_button("Save Weld Record & Generate RDSO", type="primary"):
             add_ag = add_ag_oth.strip() if add_ag_sel == "OTHER" else add_ag_sel
-            add_sup = add_sup_oth.strip() if add_sup_sel == "Other" else add_sup_sel
+            add_sup = add_sup_oth.strip() if add_sup_sel == "Other" else add_sup_oth
             add_weldno = f"{add_weldno_pfx}{add_weldno_num}"
 
             add_bf_str = f"{add_bf_h:02d}:{add_bf_m:02d}"
@@ -528,27 +528,40 @@ with tab3:
                 st.warning("No past testing logs found.")
             else:
                 st.markdown("#### 🔍 Find Existing Record")
-                c_f1, c_f2 = st.columns(2)
+                c_f1, c_f2, c_f3, c_f4 = st.columns(4)
                 f_jur = c_f1.selectbox("Filter by Jurisdiction", list(JE_OPTIONS.keys()), key="rt_edit_jur")
+                f_start_date = c_f2.date_input("From Testing Date", value=datetime.date(2020, 1, 1), key="rt_edit_start")
+                f_end_date = c_f3.date_input("To Testing Date", value=datetime.date.today(), key="rt_edit_end")
+                
                 min_k, max_k = JE_OPTIONS[f_jur]
                 if min_k < 0: min_k, max_k = 0, 400
                 
                 logs_df["ParsedDate"] = robust_parse_date_series(logs_df.get("Date of Testing", pd.Series()))
                 logs_df["KM_Val"] = logs_df.get("From Km", pd.Series()).apply(extract_km)
                 
+                # Apply Jurisdiction Filter
                 if f_jur != "All Division (Complete)" and f_jur != "Unassigned / Invalid KM":
-                    mask = (logs_df["KM_Val"] >= min_k) & (logs_df["KM_Val"] <= max_k)
-                    fl_logs = logs_df[mask].sort_values(by="ParsedDate", ascending=False)
+                    mask_j = (logs_df["KM_Val"] >= min_k) & (logs_df["KM_Val"] <= max_k)
+                elif f_jur == "Unassigned / Invalid KM":
+                    mask_j = (logs_df["KM_Val"] == -1)
                 else:
-                    fl_logs = logs_df.sort_values(by="ParsedDate", ascending=False)
-                    
-                opts = {row["Log ID"]: f"{row.get('Date of Testing','')} | Km {row.get('From Km','')} to {row.get('To Km','')} | {row.get('Done By','')}" for _, row in fl_logs.iterrows()}
-                sel_log_id = c_f2.selectbox("Select Record to Update:", options=[""] + list(opts.keys()), format_func=lambda x: "Select a record..." if x=="" else opts[x])
+                    mask_j = pd.Series([True] * len(logs_df))
                 
-                if sel_log_id:
-                    d = fl_logs[fl_logs["Log ID"] == sel_log_id].iloc[0].to_dict()
-                    target_row_idx = int(fl_logs[fl_logs["Log ID"] == sel_log_id].index[0]) + 2
-                    st.info(f"Loaded Log ID: {sel_log_id}. Make your changes below and save.")
+                # Apply Date Filter
+                mask_d = (logs_df["ParsedDate"] >= f_start_date) & (logs_df["ParsedDate"] <= f_end_date)
+                
+                fl_logs = logs_df[mask_j & mask_d].sort_values(by="ParsedDate", ascending=False)
+                
+                if fl_logs.empty:
+                    st.warning("No testing logs match the selected jurisdiction and date range.")
+                else:
+                    opts = {row["Log ID"]: f"{row.get('Date of Testing','')} | Km {row.get('From Km','')} to {row.get('To Km','')} | {row.get('Done By','')}" for _, row in fl_logs.iterrows()}
+                    sel_log_id = c_f4.selectbox("Select Record to Update:", options=[""] + list(opts.keys()), format_func=lambda x: "Select a record..." if x=="" else opts[x])
+                    
+                    if sel_log_id:
+                        d = fl_logs[fl_logs["Log ID"] == sel_log_id].iloc[0].to_dict()
+                        target_row_idx = int(fl_logs[fl_logs["Log ID"] == sel_log_id].index[0]) + 2
+                        st.info(f"Loaded Log ID: {sel_log_id}. Make your changes below and save.")
 
         with st.form("log_rail_test", clear_on_submit=(rt_mode=="🆕 Log New Testing")):
             c1, c2 = st.columns(2)
@@ -1040,24 +1053,35 @@ with tab6:
     
     if not weld_df.empty:
         weld_df["KM_Value"] = weld_df["Location"].apply(extract_km)
+        weld_df["ParsedDate"] = robust_parse_date_series(weld_df["Date of Welding"])
         
-        st.markdown("### 📍 Filter by Engineering Jurisdiction")
-        selected_jurisdiction = st.selectbox("Select Jurisdiction:", list(JE_OPTIONS.keys()))
+        st.markdown("### 📍 Filter by Jurisdiction & Date Range")
+        c_v1, c_v2, c_v3 = st.columns(3)
+        selected_jurisdiction = c_v1.selectbox("Select Jurisdiction:", list(JE_OPTIONS.keys()), key="rep_jur_main")
+        rep_start_d = c_v2.date_input("From Welding Date", value=datetime.date(2020, 1, 1), key="rep_sd_main")
+        rep_end_d = c_v3.date_input("To Welding Date", value=datetime.date.today(), key="rep_ed_main")
+
         min_km, max_km = JE_OPTIONS[selected_jurisdiction]
         
-        if selected_jurisdiction == "All Division (Complete)": filtered_weld_df = weld_df
-        elif selected_jurisdiction == "Unassigned / Invalid KM": filtered_weld_df = weld_df[weld_df["KM_Value"] == -1]
-        else: filtered_weld_df = weld_df[(weld_df["KM_Value"] >= min_km) & (weld_df["KM_Value"] <= max_km)]
+        # Jurisdiction Filter
+        if selected_jurisdiction == "All Division (Complete)": mask_jur = pd.Series([True] * len(weld_df))
+        elif selected_jurisdiction == "Unassigned / Invalid KM": mask_jur = (weld_df["KM_Value"] == -1)
+        else: mask_jur = (weld_df["KM_Value"] >= min_km) & (weld_df["KM_Value"] <= max_km)
             
-        display_weld_df = filtered_weld_df.drop(columns=["KM_Value"])
-        valid_ids = display_weld_df["AT weld ID"].tolist()
-        display_usfd_df = usfd_df[usfd_df["AT weld ID"].isin(valid_ids)] if not usfd_df.empty else pd.DataFrame()
+        # Date Filter
+        mask_date = (weld_df["ParsedDate"] >= rep_start_d) & (weld_df["ParsedDate"] <= rep_end_d)
+
+        filtered_weld_df = weld_df[mask_jur & mask_date]
+            
+        display_weld_df = filtered_weld_df.drop(columns=["KM_Value", "ParsedDate"], errors='ignore')
+        valid_ids = display_weld_df["AT weld ID"].tolist() if "AT weld ID" in display_weld_df.columns else []
+        display_usfd_df = usfd_df[usfd_df["AT weld ID"].isin(valid_ids)] if not usfd_df.empty and "AT weld ID" in usfd_df.columns else pd.DataFrame()
             
         st.markdown(f"### 1. MMG Weld Database ({selected_jurisdiction})")
         st.dataframe(display_weld_df, use_container_width=True)
         
         st.markdown(f"### 2. USFD Testing Database History ({selected_jurisdiction})")
-        if display_usfd_df.empty: st.info("No USFD test records found for this jurisdiction selection.")
+        if display_usfd_df.empty: st.info("No USFD test records found for this selection.")
         else: st.dataframe(display_usfd_df, use_container_width=True)
             
         st.markdown("---")
